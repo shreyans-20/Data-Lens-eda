@@ -1,0 +1,2417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DataLens — EDA Studio</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231e293b'/><text x='16' y='23' text-anchor='middle' font-size='18' font-family='serif' fill='white' font-style='italic'>D</text></svg>"/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+<style>
+/* ══════════════════════════════════════════════
+   CSS VARIABLES — LIGHT MODE
+══════════════════════════════════════════════ */
+:root {
+  --bg:        #f5f4f0;
+  --surface:   #ffffff;
+  --card:      #ffffff;
+  --border:    #e2ddd6;
+  --border2:   #ccc8bf;
+  --ink:       #18161280;
+  --ink-full:  #181612;
+  --ink2:      #3f3b36;
+  --muted:     #6b665e;
+  --accent:    #1d4ed8;
+  --accent-l:  #dbeafe;
+  --accent-d:  #1e3a8a;
+  --green:     #15803d;
+  --green-l:   #dcfce7;
+  --red:       #b91c1c;
+  --red-l:     #fee2e2;
+  --amber:     #b45309;
+  --amber-l:   #fef3c7;
+  --purple:    #6d28d9;
+  --purple-l:  #ede9fe;
+  --sans:      'Roboto', sans-serif;
+  --serif:     'Playfair Display', serif;
+  --mono:      'Roboto Mono', monospace;
+  --r:         8px;
+  --r2:        14px;
+  --shadow:    0 1px 3px rgba(0,0,0,.05), 0 4px 12px rgba(0,0,0,.06);
+  --shadow2:   0 8px 32px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.06);
+  --transition: 0.18s cubic-bezier(0.4,0,0.2,1);
+}
+
+/* ══════════════════════════════════════════════
+   DARK MODE
+══════════════════════════════════════════════ */
+[data-theme="dark"] {
+  --bg:        #111009;
+  --surface:   #1c1a15;
+  --card:      #1c1a15;
+  --border:    #2c2922;
+  --border2:   #3a3630;
+  --ink:       #e2ddd580;
+  --ink-full:  #e2ddd5;
+  --ink2:      #c1bcb4;
+  --muted:     #a39e93;
+  --accent:    #5b8af0;
+  --accent-l:  #1a2545;
+  --accent-d:  #4070d8;
+  --green:     #22c55e;
+  --green-l:   #0b2818;
+  --red:       #f87171;
+  --red-l:     #2d0f0f;
+  --amber:     #fbbf24;
+  --amber-l:   #2a1c00;
+  --purple:    #a78bfa;
+  --purple-l:  #1e1540;
+  --shadow:    0 1px 3px rgba(0,0,0,.3), 0 4px 12px rgba(0,0,0,.35);
+  --shadow2:   0 8px 32px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.3);
+}
+[data-theme="dark"] tbody tr:hover td { background: rgba(91,138,240,0.08); }
+[data-theme="dark"] tbody tr.active-row td { background: rgba(91,138,240,0.16); }
+[data-theme="dark"] .upload-box:hover,
+[data-theme="dark"] .upload-box.drag { background: #1a2545; border-color: var(--accent); }
+[data-theme="dark"] .chart-hint { background: var(--amber-l); border-color: #6b4e10; }
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--ink-full);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100vh;
+  transition: background 0.25s, color 0.25s;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+/* ── TOAST ── */
+#toast-container {
+  position: fixed; bottom: 24px; right: 24px;
+  z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.toast {
+  padding: 12px 18px; border-radius: var(--r); font-size: 0.82rem;
+  font-family: var(--sans); font-weight: 500; box-shadow: var(--shadow2);
+  pointer-events: all; animation: toast-in 0.25s ease forwards;
+  display: flex; align-items: center; gap: 10px; max-width: 340px;
+}
+.toast.info    { background: #1d4ed8; color: #fff; }
+.toast.success { background: #15803d; color: #fff; }
+.toast.error   { background: #b91c1c; color: #fff; }
+.toast.warning { background: #b45309; color: #fff; }
+.toast.out     { animation: toast-out 0.25s ease forwards; }
+@keyframes toast-in  { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
+@keyframes toast-out { from{opacity:1;transform:translateX(0)}    to{opacity:0;transform:translateX(20px)} }
+
+/* ── HEADER ── */
+header {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 0 28px; height: 58px; display: flex; align-items: center;
+  justify-content: space-between; position: sticky; top: 0; z-index: 200;
+  box-shadow: 0 1px 0 var(--border), 0 2px 12px rgba(0,0,0,.04);
+  transition: background 0.25s, border-color 0.25s;
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark {
+  width: 34px; height: 34px; background: var(--ink-full); border-radius: 9px;
+  display: grid; place-items: center; color: #fff; font-family: var(--serif);
+  font-size: 1.1rem; font-style: italic; flex-shrink: 0; transition: background 0.25s;
+}
+.brand-name { font-family: var(--serif); font-size: 1.25rem; color: var(--ink-full); letter-spacing: -0.2px; font-weight: 600; display: flex; align-items: baseline; gap: 8px; }
+.brand-name span { font-family: var(--sans); font-size: 0.75rem; font-weight: 600; color: var(--muted); letter-spacing: 0.5px; text-transform: uppercase; font-style: normal; }
+.brand-tag  { font-family: var(--mono); font-size: 0.7rem; font-weight: 500; color: var(--muted); letter-spacing: 0.8px; text-transform: uppercase; }
+.header-actions { display: flex; align-items: center; gap: 10px; }
+
+.file-badge {
+  display: none; align-items: center; gap: 8px; background: var(--green-l);
+  color: var(--green); padding: 4px 12px; border-radius: 100px;
+  font-size: 0.73rem; font-family: var(--mono); font-weight: 500;
+}
+.file-badge.show { display: flex; }
+.file-badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ── THEME TOGGLE ── */
+#theme-toggle {
+  width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border2);
+  background: var(--bg); color: var(--ink-full); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 1rem;
+  transition: all var(--transition); flex-shrink: 0;
+}
+#theme-toggle:hover { border-color: var(--accent); background: var(--accent-l); }
+
+/* ── BUTTONS ── */
+.btn {
+  padding: 8px 16px; border-radius: var(--r); border: 1px solid var(--border2);
+  background: var(--surface); color: var(--ink-full); font-family: var(--sans);
+  font-size: 0.82rem; font-weight: 500; cursor: pointer; transition: all var(--transition);
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.btn:hover { background: var(--bg); border-color: var(--ink2); }
+.btn-primary { background: var(--ink-full); color: #fff; border-color: var(--ink-full); }
+.btn-primary:hover { opacity: 0.88; }
+.btn-accent { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-accent:hover { background: var(--accent-d); }
+.btn-sm { padding: 5px 12px; font-size: 0.75rem; }
+.btn-ghost {
+  background: transparent; border: none; color: var(--muted); font-size: 1rem;
+  cursor: pointer; padding: 5px 9px; border-radius: 6px; line-height: 1; transition: all var(--transition);
+}
+.btn-ghost:hover { background: var(--bg); color: var(--ink-full); }
+
+/* ── QUICK FIX BUTTONS ── */
+.btn-qf {
+  padding: 5px 13px; border-radius: var(--r); border: 1px solid var(--border2);
+  background: var(--surface); color: var(--ink2); font-family: var(--sans);
+  font-size: 0.74rem; font-weight: 500; cursor: pointer; transition: all var(--transition);
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+}
+.btn-qf:hover { background: var(--bg); border-color: var(--accent); color: var(--accent); }
+.btn-qf.red   { border-color: var(--red);   color: var(--red); }
+.btn-qf.red:hover   { background: var(--red);   color: #fff; }
+.btn-qf.green { border-color: var(--green); color: var(--green); }
+.btn-qf.green:hover { background: var(--green); color: #fff; }
+.btn-qf.purple { border-color: var(--purple); color: var(--purple); }
+.btn-qf.purple:hover { background: var(--purple); color: #fff; }
+
+/* Form Checkboxes for ML Modal */
+.checkbox-group { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-family: var(--sans); font-size: 0.85rem; color: var(--ink-full); cursor: pointer; }
+.checkbox-group input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+
+/* ── UPLOAD SCREEN ── */
+#upload-screen {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: calc(100vh - 58px); padding: 40px 20px; animation: fade-up 0.4s ease;
+}
+@keyframes fade-up { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+.upload-hero { text-align: center; max-width: 560px; margin-bottom: 40px; }
+.upload-hero h1 {
+  font-family: var(--serif); font-size: clamp(2.2rem, 5vw, 3.4rem);
+  line-height: 1.1; margin-bottom: 14px; color: var(--ink-full); font-weight: 700;
+}
+.upload-hero h1 em { color: var(--accent); font-style: italic; }
+.upload-hero p { color: var(--ink2); font-size: 1rem; line-height: 1.7; font-weight: 300; }
+
+.upload-box {
+  width: 100%; max-width: 540px; background: var(--surface);
+  border: 2px dashed var(--border2); border-radius: var(--r2);
+  padding: 52px 36px; text-align: center; cursor: pointer;
+  transition: all 0.22s; position: relative;
+}
+.upload-box:hover, .upload-box.drag {
+  border-color: var(--accent); background: var(--accent-l);
+  transform: translateY(-2px); box-shadow: var(--shadow2);
+}
+.upload-icon { font-size: 2.6rem; margin-bottom: 16px; display: block; }
+.upload-box h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; font-family: var(--serif); }
+.upload-box p { font-size: 0.82rem; color: var(--muted); margin-bottom: 22px; font-weight: 300; }
+.format-chips { display: flex; justify-content: center; gap: 8px; margin-bottom: 22px; }
+.chip { font-family: var(--mono); font-size: 0.64rem; font-weight: 500; padding: 3px 10px; border-radius: 100px; letter-spacing: 0.4px; }
+.chip-blue  { background: var(--accent-l); color: var(--accent); }
+.chip-green { background: var(--green-l);  color: var(--green); }
+.chip-amber { background: var(--amber-l);  color: var(--amber); }
+#file-input { display: none; }
+.sample-btn {
+  margin-top: 16px; font-size: 0.78rem; color: var(--muted); cursor: pointer;
+  background: none; border: none; font-family: var(--sans); text-decoration: underline; transition: color var(--transition);
+}
+.sample-btn:hover { color: var(--accent); }
+
+.social-links { margin-top: 36px; display: flex; gap: 20px; font-family: var(--sans); font-size: 0.85rem; font-weight: 500; }
+.social-links a { color: var(--muted); text-decoration: none; transition: color var(--transition); display: flex; align-items: center; gap: 6px; }
+.social-links a:hover { color: var(--accent); }
+
+/* ── LOADER ── */
+#loader {
+  display: none; flex-direction: column; align-items: center;
+  justify-content: center; min-height: calc(100vh - 58px); gap: 16px;
+}
+.loader-spinner {
+  width: 42px; height: 42px; border: 3px solid var(--border);
+  border-top-color: var(--accent); border-radius: 50%; animation: spin 0.75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loader-msg  { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); min-width: 280px; text-align: center; }
+.loader-sub  { font-family: var(--mono); font-size: 0.66rem; color: var(--muted); text-align: center; }
+.loader-track { width: 280px; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.loader-fill  { height: 100%; background: var(--accent); animation: progress 1.4s ease-in-out infinite; }
+@keyframes progress { 0%{width:0%;margin-left:0} 50%{width:65%;margin-left:0} 100%{width:0%;margin-left:100%} }
+
+/* ── EXPORT BANNER ── */
+#export-banner {
+  display: none; align-items: center; gap: 12px; padding: 10px 20px;
+  background: var(--green-l); border: 1px solid var(--green); border-radius: var(--r);
+  margin-bottom: 16px; font-size: 0.82rem; color: var(--green); animation: fade-up 0.25s ease;
+  max-width: 1420px; margin-left: auto; margin-right: auto; margin-top: 16px;
+}
+#export-banner.show { display: flex; }
+
+/* ── DASHBOARD LAYOUT ── */
+#dashboard {
+  display: none; max-width: 1420px; margin: 0 auto;
+  padding: 28px 24px 60px; animation: fade-up 0.3s ease;
+}
+
+/* ── SECTION LABEL ── */
+.sec-label {
+  font-family: var(--mono); font-size: 0.75rem; font-weight: 600;
+  letter-spacing: 1.8px; text-transform: uppercase; color: var(--ink-full);
+  margin-bottom: 14px; display: flex; align-items: center; gap: 10px;
+}
+.sec-label::after { content:''; flex:1; height:1px; background:var(--border); }
+
+/* ── CARD ── */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r2); box-shadow: var(--shadow); }
+
+/* ── TOP BAR ── */
+.top-bar {
+  display: flex; align-items: center; gap: 14px; margin-bottom: 28px;
+  padding: 14px 20px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r2); box-shadow: var(--shadow);
+}
+.top-bar .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-l); flex-shrink:0; }
+.top-bar .fname { font-weight: 600; font-size: 0.9rem; font-family: var(--serif); }
+.top-bar .fmeta { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
+.top-bar .spacer { flex: 1; }
+
+/* ── OVERVIEW GRID ── */
+#overview-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 28px; }
+.ov-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r2);
+  padding: 18px 16px; text-align: center; box-shadow: var(--shadow);
+  transition: box-shadow var(--transition), transform var(--transition); position: relative; overflow: hidden;
+}
+.ov-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:var(--accent); opacity:0; transition:opacity var(--transition); }
+.ov-card:hover { box-shadow: var(--shadow2); transform: translateY(-2px); }
+.ov-card:hover::before { opacity: 1; }
+.ov-card.warn::before   { background: var(--amber); opacity: 1; }
+.ov-card.danger::before { background: var(--red);   opacity: 1; }
+.ov-val   { font-family: var(--serif); font-size: 2.1rem; color: var(--ink-full); line-height: 1; margin-bottom: 5px; font-weight: 700; }
+.ov-label { font-family: var(--mono);  font-size: 0.7rem; font-weight: 600; color: var(--muted); letter-spacing: 1.2px; text-transform: uppercase; }
+
+/* ── TWO-COL ── */
+.two-col { display: grid; grid-template-columns: 400px 1fr; gap: 20px; margin-bottom: 28px; align-items: start; }
+
+/* ── COLUMN EXPLORER ── */
+.col-explorer { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r2); box-shadow: var(--shadow); overflow: hidden; }
+.col-explorer-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.col-explorer-header h2 { font-size: 0.92rem; font-weight: 600; font-family: var(--serif); }
+.col-search {
+  flex: 1; padding: 5px 10px; border: 1px solid var(--border2); border-radius: var(--r);
+  font-family: var(--mono); font-size: 0.75rem; background: var(--bg); color: var(--ink-full);
+  outline: none; transition: border-color var(--transition); max-width: 160px;
+}
+.col-search:focus { border-color: var(--accent); }
+.col-sort-btns { display: flex; gap: 4px; }
+.sort-btn {
+  padding: 4px 8px; font-size: 0.65rem; font-family: var(--mono); border: 1px solid var(--border2);
+  border-radius: 5px; background: var(--bg); cursor: pointer; color: var(--muted); transition: all var(--transition); white-space: nowrap;
+}
+.sort-btn:hover, .sort-btn.active { background: var(--ink-full); color: #fff; border-color: var(--ink-full); }
+.col-table-wrap { overflow-x: auto; max-height: 500px; overflow-y: auto; }
+
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  background: var(--bg); font-family: var(--mono); font-size: 0.7rem; font-weight: 600;
+  letter-spacing: 1.1px; text-transform: uppercase; color: var(--ink-full); padding: 10px 14px;
+  text-align: left; border-bottom: 1px solid var(--border); position: sticky; top: 0;
+  z-index: 1; cursor: pointer; user-select: none; white-space: nowrap;
+}
+thead th:hover { color: var(--ink-full); }
+thead th .sort-arrow { margin-left: 4px; opacity: 0.4; }
+thead th.sorted .sort-arrow { opacity: 1; }
+tbody td { padding: 9px 14px; font-size: 0.8rem; border-bottom: 1px solid var(--border); color: var(--ink2); transition: background var(--transition); }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: #f0f5ff; cursor: pointer; }
+tbody tr.active-row td { background: #dbeafe; }
+tbody td:first-child { font-family: var(--mono); font-size: 0.75rem; color: var(--ink-full); font-weight: 500; }
+
+.type-badge { display: inline-block; padding: 2px 8px; border-radius: 100px; font-family: var(--mono); font-size: 0.65rem; font-weight: 600; letter-spacing: 0.4px; }
+.type-num { background: var(--accent-l); color: var(--accent); }
+.type-cat { background: var(--purple-l); color: var(--purple); }
+.type-dt  { background: var(--green-l);  color: var(--green); }
+
+/* ── STATS PANEL ── */
+.stats-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r2); box-shadow: var(--shadow); overflow: hidden; }
+.stats-panel-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.stats-panel-header h2 { font-size: 0.92rem; font-weight: 600; font-family: var(--serif); }
+.col-pills { display: flex; flex-wrap: wrap; gap: 5px; padding: 12px 16px; border-bottom: 1px solid var(--border); max-height: 110px; overflow-y: auto; }
+.col-pill-btn {
+  padding: 4px 12px; border-radius: 100px; border: 1px solid var(--border2);
+  background: var(--bg); font-family: var(--mono); font-size: 0.75rem; font-weight: 500;
+  cursor: pointer; transition: all var(--transition); color: var(--ink2);
+}
+.col-pill-btn:hover { border-color: var(--accent); color: var(--accent); }
+.col-pill-btn.active { background: var(--ink-full); color: #fff; border-color: var(--ink-full); }
+.stats-content { padding: 18px; }
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; }
+.stat-item { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); padding: 12px; text-align: center; transition: box-shadow var(--transition); }
+.stat-item:hover { box-shadow: var(--shadow); }
+.stat-val { font-family: var(--serif); font-size: 1.3rem; color: var(--ink-full); line-height: 1; margin-bottom: 4px; font-weight: 600; }
+.stat-lbl { font-family: var(--mono); font-size: 0.7rem; font-weight: 600; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+.chart-area { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); padding: 14px; height: 230px; display: flex; align-items: center; justify-content: center; }
+.chart-area canvas { max-height: 200px; }
+.no-col { color: var(--muted); font-size: 0.82rem; text-align: center; padding: 60px 20px; font-weight: 300; }
+
+/* ── DATA PREVIEW ── */
+#preview-section { margin-bottom: 28px; }
+.preview-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r2); box-shadow: var(--shadow); overflow: hidden; }
+.preview-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.preview-header h2 { font-size: 0.92rem; font-weight: 600; font-family: var(--serif); }
+.preview-table-wrap { overflow-x: auto; max-height: 280px; overflow-y: auto; }
+.preview-table { font-size: 0.76rem; }
+.preview-table thead th { font-size: 0.7rem; }
+.preview-table tbody td { font-family: var(--mono); font-size: 0.72rem; }
+.row-num { color: var(--muted); font-family: var(--mono); font-size: 0.75rem; background: var(--bg); }
+
+/* ── CORRELATIONS ── */
+#corr-section { margin-bottom: 28px; }
+.corr-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r2); box-shadow: var(--shadow); overflow: hidden; }
+.corr-card-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.corr-card-header h2 { font-size: 0.92rem; font-weight: 600; font-family: var(--serif); }
+.corr-view-tabs { display: flex; gap: 6px; }
+.corr-view-tab { padding: 4px 12px; border-radius: 100px; border: 1px solid var(--border2); background: var(--bg); font-family: var(--mono); font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: all var(--transition); color: var(--ink2); }
+.corr-view-tab.active { background: var(--ink-full); color: #fff; border-color: var(--ink-full); }
+.corr-body { padding: 18px; }
+.corr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.corr-item { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px; transition: box-shadow var(--transition); cursor: pointer; }
+.corr-item:hover { box-shadow: var(--shadow); }
+.corr-pair { font-family: var(--mono); font-size: 0.8rem; font-weight: 600; color: var(--ink-full); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.corr-bar-wrap { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+.corr-bar { height: 100%; border-radius: 3px; transition: width 0.8s cubic-bezier(0.16,1,0.3,1); }
+.corr-val { font-family: var(--serif); font-size: 1rem; font-weight: 600; }
+.corr-empty { padding: 40px; text-align: center; color: var(--muted); font-size: 0.85rem; }
+
+/* ── HEATMAP ── */
+#corr-heatmap-view { display: none; }
+.heatmap-scroll { overflow-x: auto; overflow-y: auto; max-height: 450px; padding: 16px; }
+.heatmap-table { border-collapse: collapse; font-family: var(--mono); font-size: 0.75rem; }
+.heatmap-table th {
+  padding: 8px 10px; font-weight: 600; color: var(--ink-full); white-space: nowrap;
+  border: 1px solid var(--border); background: var(--bg); min-width: 52px;
+}
+.heatmap-table td {
+  width: 60px; height: 48px; text-align: center; font-weight: 600; font-size: 0.75rem;
+  border: 1px solid var(--border); cursor: pointer; position: relative;
+  transition: outline 0.1s;
+}
+.heatmap-table td:hover { outline: 2px solid var(--ink-full); z-index: 1; }
+[data-theme="dark"] .heatmap-table td { color: rgba(255,255,255,0.85); }
+.heatmap-legend { display: flex; align-items: center; gap: 10px; padding: 0 16px 14px; font-family: var(--mono); font-size: 0.75rem; font-weight: 500; color: var(--muted); }
+.heatmap-legend-bar { width: 160px; height: 10px; border-radius: 5px; border: 1px solid var(--border); background: linear-gradient(to right, #b91c1c, #fee2e2, #f5f4f0, #dbeafe, #1d4ed8); }
+[data-theme="dark"] .heatmap-legend-bar { background: linear-gradient(to right, #f87171, #2d0f0f, #111009, #1a2545, #5b8af0); }
+
+/* ── OUTLIER SECTION ── */
+#outlier-section { margin-bottom: 28px; }
+.outlier-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r2); box-shadow: var(--shadow); overflow: hidden; }
+.outlier-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.outlier-header h2 { font-size: 0.92rem; font-weight: 600; font-family: var(--serif); }
+.outlier-body { padding: 18px; }
+.outlier-col-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.outlier-tab { padding: 4px 12px; border-radius: 100px; border: 1px solid var(--border2); background: var(--bg); font-family: var(--mono); font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: all var(--transition); color: var(--ink2); }
+.outlier-tab.active { background: var(--red); color: #fff; border-color: var(--red); }
+.outlier-table-wrap { overflow-x: auto; max-height: 280px; overflow-y: auto; }
+.outlier-empty { padding: 40px; text-align: center; color: var(--muted); font-size: 0.85rem; }
+
+/* ── BOX PLOT PANEL ── */
+#boxplot-panel { display: none; border-top: 1px solid var(--border); }
+.boxplot-panel-head { padding: 12px 18px; background: var(--bg); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+.boxplot-col-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.boxplot-tab { padding: 4px 12px; border-radius: 100px; border: 1px solid var(--border2); background: var(--bg); font-family: var(--mono); font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: all var(--transition); color: var(--ink2); }
+.boxplot-tab.active { background: var(--purple); color: #fff; border-color: var(--purple); }
+.boxplot-canvas-area { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); padding: 14px; height: 260px; display: flex; align-items: center; justify-content: center; }
+.boxplot-stats { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+.bstat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 6px 12px; font-family: var(--mono); font-size: 0.75rem; font-weight: 500; color: var(--ink2); }
+.bstat strong { color: var(--ink-full); }
+
+/* ── QUALITY SECTION ── */
+#quality-section { margin-bottom: 28px; }
+.quality-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r2); box-shadow: var(--shadow); overflow: hidden; }
+.quality-card-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.quality-card-header h2 { font-size: 0.92rem; font-weight: 600; font-family: var(--serif); }
+.qf-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.quality-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 16px; }
+.q-item { padding: 18px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow); transition: transform var(--transition), box-shadow var(--transition); }
+.q-item:hover { background: var(--bg); }
+.q-name { font-family: var(--mono); font-size: 0.8rem; font-weight: 600; color: var(--ink-full); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q-bar-wrap { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 5px; }
+.q-bar { height: 100%; border-radius: 3px; transition: width 0.9s cubic-bezier(0.16,1,0.3,1); }
+.q-pct { font-family: var(--mono); font-size: 0.7rem; font-weight: 500; color: var(--muted); }
+
+/* ── VIS MODAL ── */
+#vis-modal { display: none; position: fixed; inset: 0; background: rgba(10,8,5,.55); z-index: 999; align-items: center; justify-content: center; padding: 24px; backdrop-filter: blur(5px); }
+#vis-modal.open { display: flex; }
+.vis-modal-inner { background: var(--surface); border-radius: 18px; box-shadow: 0 32px 100px rgba(0,0,0,.25); width: 100%; max-width: 1200px; height: 85vh; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; animation: modal-in 0.22s ease; }
+@keyframes modal-in { from{opacity:0;transform:translateY(14px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }
+.vis-modal-head { padding: 18px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+.vis-modal-head h2 { font-size: 1rem; font-weight: 700; flex: 1; font-family: var(--serif); }
+.vis-modal-head p { font-size: 0.78rem; color: var(--muted); }
+.vis-modal-body { display: grid; grid-template-columns: 300px 1fr; flex: 1; overflow: hidden; }
+.vis-controls { border-right: 1px solid var(--border); padding: 24px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; min-width: 300px; background: var(--bg); }
+.ctrl-group { display: flex; flex-direction: column; gap: 10px; }
+.ctrl-group label { display: block; font-family: var(--mono); font-size: 0.73rem; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-full); }
+.ctrl-group select {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border2); border-radius: var(--r);
+  font-family: var(--sans); font-size: 0.88rem; background: var(--surface); color: var(--ink-full);
+  cursor: pointer; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238a857c'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; outline: none; transition: border-color var(--transition);
+}
+.ctrl-group select:focus { border-color: var(--accent); }
+.chart-type-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+.ct-btn { padding: 14px 10px; border: 1px solid var(--border2); border-radius: var(--r); background: var(--surface); cursor: pointer; text-align: center; transition: all var(--transition); font-size: 0.9rem; color: var(--ink2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 72px; }
+.ct-btn .ct-icon { font-size: 1.4rem; }
+.ct-btn:hover { border-color: var(--accent); color: var(--accent); }
+.ct-btn.active { background: var(--ink-full); color: #fff; border-color: var(--ink-full); }
+.chart-hint, .vis-helper { background: var(--amber-l); border: 1px solid #fbbf24; border-radius: var(--r); padding: 12px 14px; font-size: 0.82rem; color: var(--amber); line-height: 1.5; }
+.vis-helper { background: var(--accent-l); border: 1px solid var(--accent); color: var(--accent-d); }
+.vis-canvas-area { display: flex; flex-direction: column; padding: 20px; overflow-y: auto; }
+.vis-chart-wrap { flex: 1; min-height: 450px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r2); padding: 16px; display: flex; align-items: center; justify-content: center; margin-bottom: 14px; position: relative; }
+.vis-chart-wrap canvas { max-height: 100%; max-width: 100%; }
+.vis-chart-actions { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
+.vis-empty { text-align: center; color: var(--muted); font-size: 0.84rem; font-weight: 300; }
+.vis-empty .vis-empty-icon { font-size: 2.6rem; margin-bottom: 10px; display: block; }
+.vis-insights { display: flex; gap: 8px; flex-wrap: wrap; }
+.insight-chip { background: var(--bg); border: 1px solid var(--border); border-radius: 100px; padding: 4px 12px; font-family: var(--mono); font-size: 0.75rem; font-weight: 500; color: var(--ink2); }
+
+/* ── REPORT MODAL ── */
+#report-modal { display: none; position: fixed; inset: 0; background: rgba(10,8,5,.55); z-index: 999; align-items: center; justify-content: center; padding: 24px; backdrop-filter: blur(5px); }
+#report-modal.open { display: flex; }
+.report-modal-inner { background: var(--surface); border-radius: 18px; box-shadow: 0 32px 100px rgba(0,0,0,.25); width: 100%; max-width: 720px; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; animation: modal-in 0.22s ease; }
+.report-head { padding: 18px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+.report-head h2 { font-size: 1rem; font-weight: 700; flex: 1; font-family: var(--serif); }
+#report-content { flex: 1; overflow-y: auto; padding: 24px; font-size: 0.84rem; line-height: 1.8; font-weight: 300; }
+#report-content h3 { font-family: var(--serif); font-size: 1.05rem; font-weight: 600; margin: 20px 0 8px; color: var(--ink-full); }
+#report-content h3:first-child { margin-top: 0; }
+#report-content p { color: var(--ink2); margin-bottom: 10px; }
+#report-content .report-kv { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin: 12px 0; }
+#report-content .report-kv-item { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); padding: 10px 12px; }
+#report-content .report-kv-val { font-family: var(--serif); font-size: 1.2rem; font-weight: 600; color: var(--ink-full); }
+.report-kv-lbl { font-family: var(--mono); font-size: 0.7rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+.report-footer { padding: 14px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+.ai-box { background: var(--accent-l); border: 1px solid var(--accent); border-radius: var(--r); padding: 18px; margin-bottom: 24px; }
+.ai-box-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.ai-box-head h3 { margin: 0 !important; color: var(--accent-d) !important; font-size: 1.1rem !important; }
+.ai-content { font-size: 0.85rem; color: var(--ink-full); line-height: 1.6; }
+
+/* ── ML PREP MODAL ── */
+#ml-modal { display: none; position: fixed; inset: 0; background: rgba(10,8,5,.55); z-index: 999; align-items: center; justify-content: center; padding: 24px; backdrop-filter: blur(5px); }
+#ml-modal.open { display: flex; }
+.ml-modal-inner { background: var(--surface); border-radius: 18px; box-shadow: 0 32px 100px rgba(0,0,0,.25); width: 100%; max-width: 600px; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; animation: modal-in 0.22s ease; }
+.ml-section { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+.ml-section:last-child { border-bottom: none; }
+.ml-section h3 { font-family: var(--serif); font-size: 1rem; margin-bottom: 10px; }
+.ml-section p { font-size: 0.8rem; color: var(--muted); margin-bottom: 14px; }
+.col-drop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; max-height: 150px; overflow-y: auto; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); }
+
+/* ── SCROLL TO TOP ── */
+#scroll-top { position: fixed; bottom: 28px; left: 28px; width: 40px; height: 40px; background: var(--ink-full); color: #fff; border: none; border-radius: 50%; cursor: pointer; display: none; align-items: center; justify-content: center; font-size: 1rem; box-shadow: var(--shadow2); z-index: 100; transition: all var(--transition); }
+#scroll-top.show { display: flex; }
+#scroll-top:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 1100px) {
+  .two-col { grid-template-columns: 1fr; }
+  #overview-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 640px) {
+  /* Mobile Enhancements */
+  html, body { font-size: 15px; } /* slightly larger text for readability */
+  button, select, input[type="date"], .btn-qf { min-height: 40px; } /* better touch targets */
+  #overview-grid { grid-template-columns: repeat(2, 1fr); }
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .vis-modal-body { grid-template-columns: 1fr; }
+  .vis-modal-inner, .ml-modal-inner, .report-modal-inner { max-height: 100vh; height: 100vh; border-radius: 0; width: 100vw; max-width: 100vw; }
+  .vis-controls { border-right: none; border-bottom: 1px solid var(--border); }
+  header { padding: 0 16px; }
+  #dashboard { padding: 16px 12px 48px; }
+  .brand-tag { display: none; }
+  .qf-actions { justify-content: flex-start; }
+  .top-bar { flex-wrap: wrap; }
+  .top-bar .spacer { display: none; }
+  .top-bar button { flex: 1; justify-content: center; }
+}
+</style>
+</head>
+<body>
+
+<!-- TOAST CONTAINER -->
+<div id="toast-container" role="region" aria-live="polite" aria-label="Notifications"></div>
+
+<!-- SCROLL TO TOP -->
+<button id="scroll-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Back to top" title="Back to top">↑</button>
+
+<!-- ── HEADER ── -->
+<header role="banner">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">D</div>
+    <div>
+      <div class="brand-name">DataLens <span>by Shreyans</span></div>
+      <div class="brand-tag">EDA Studio</div>
+    </div>
+  </div>
+  <div class="header-actions">
+    <div class="file-badge" id="file-badge" role="status" aria-live="polite">
+      <span class="file-badge-dot" aria-hidden="true"></span>
+      <span id="badge-name">file.csv</span>
+    </div>
+    <button class="btn btn-sm" id="btn-report" style="display:none" onclick="openReport()" aria-label="Generate EDA Report">📄 Report</button>
+    <button class="btn btn-accent btn-sm" id="btn-vis-builder" style="display:none" onclick="openVisBuilder()" aria-label="Open Visualization Builder">📊 Visualize</button>
+    <button id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark/light mode" title="Toggle dark mode">🌙</button>
+    <button class="btn btn-sm" id="btn-reset" style="display:none" onclick="resetApp()" aria-label="Close current dataset">✕ Close</button>
+  </div>
+</header>
+
+<!-- ── UPLOAD SCREEN ── -->
+<main id="upload-screen" role="main">
+  <div class="upload-hero">
+    <h1>Explore your data<br/><em>instantly.</em></h1>
+    <p>Upload any CSV or Excel file — supports 1 lakh+ rows. DataLens auto-detects column types, computes statistics, surfaces correlations, flags outliers, and lets you clean and export — no setup needed.</p>
+  </div>
+
+  <div class="upload-box" id="upload-box" role="button" tabindex="0" aria-label="Drop your CSV or Excel file here, or click to choose a file">
+    <span class="upload-icon" aria-hidden="true">📂</span>
+    <h3>Drop your file here</h3>
+    <p>CSV, Excel (.xlsx, .xls) — 1,00,000+ rows supported</p>
+    <div class="format-chips" aria-label="Supported formats">
+      <span class="chip chip-blue">CSV</span>
+      <span class="chip chip-green">XLSX</span>
+      <span class="chip chip-amber">XLS</span>
+    </div>
+    <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">Choose File</button>
+    <input type="file" id="file-input" accept=".csv,.xlsx,.xls" aria-label="Select a CSV or Excel file"/>
+    <br/>
+    <button class="sample-btn" onclick="loadSampleData()">→ Try with sample data (no upload needed)</button>
+  </div>
+
+  <div class="social-links">
+    <a href="https://www.linkedin.com/in/shreyansjainn/" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+      LinkedIn
+    </a>
+    <a href="https://github.com/shreyans-20" target="_blank" rel="noopener noreferrer" aria-label="GitHub">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+      GitHub
+    </a>
+  </div>
+</main>
+
+<!-- ── LOADER ── -->
+<div id="loader" role="status" aria-label="Processing your file">
+  <div class="loader-spinner" aria-hidden="true"></div>
+  <div class="loader-msg" id="loader-msg" aria-live="polite">Reading file...</div>
+  <div class="loader-sub" id="loader-sub" aria-live="polite"></div>
+  <div class="loader-track" role="progressbar" aria-label="Processing progress"><div class="loader-fill"></div></div>
+</div>
+
+<!-- ── EXPORT BANNER ── -->
+<div id="export-banner" role="alert" aria-live="polite">
+  <span aria-hidden="true">✅</span>
+  <span id="export-banner-msg"><strong>Dataset modified.</strong> Your changes are applied in memory.</span>
+  <button class="btn btn-sm" style="background:var(--green);color:#fff;border-color:var(--green);margin-left:auto" onclick="exportCleanedCSV()" aria-label="Export cleaned dataset as CSV">⬇ Export Cleaned CSV</button>
+  <button class="btn-ghost" style="font-size:0.8rem" onclick="document.getElementById('export-banner').classList.remove('show')" aria-label="Dismiss notification">✕</button>
+</div>
+
+<!-- ── DASHBOARD ── -->
+<div id="dashboard" role="main">
+
+  <!-- TOP BAR -->
+  <div class="top-bar" role="region" aria-label="File info">
+    <div class="dot" aria-hidden="true"></div>
+    <div>
+      <div class="fname" id="db-fname">—</div>
+      <div class="fmeta" id="db-fmeta">—</div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn btn-sm" onclick="openReport()" aria-label="Generate report">📄 Generate Report</button>
+    <button class="btn btn-accent btn-sm" onclick="openVisBuilder()" aria-label="Open visualization builder">📊 Visualization Builder</button>
+    <button class="btn btn-sm" onclick="resetApp()" aria-label="Close dataset">✕ Close</button>
+  </div>
+
+  <!-- SECTION 1: OVERVIEW -->
+  <div class="sec-label" role="heading" aria-level="2">01 — Dataset Overview</div>
+  <div id="overview-grid" role="region" aria-label="Dataset overview statistics"></div>
+
+  <!-- SECTION 2: DATA PREVIEW -->
+  <div class="sec-label" id="preview-sec-label" role="heading" aria-level="2">02 — Data Preview</div>
+  <div id="preview-section">
+    <div class="preview-card">
+      <div class="preview-header">
+        <h2>First 10 Rows</h2>
+        <span style="font-family:var(--mono);font-size:0.65rem;color:var(--muted)">Actual data from your file</span>
+      </div>
+      <div class="preview-table-wrap">
+        <table class="preview-table" role="table" aria-label="Data preview">
+          <thead id="preview-thead"></thead>
+          <tbody id="preview-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 3: COLUMN EXPLORER + STATS -->
+  <div class="sec-label" id="col-sec-label" role="heading" aria-level="2">03 — Column Explorer &amp; Statistics</div>
+  <div class="two-col">
+    <div class="col-explorer" role="region" aria-label="Column explorer">
+      <div class="col-explorer-header">
+        <h2>Columns</h2>
+        <input class="col-search" id="col-search" type="search" placeholder="Search columns…" oninput="filterColumns(this.value)" aria-label="Search columns by name"/>
+        <div class="col-sort-btns" role="group" aria-label="Sort options">
+          <button class="sort-btn active" id="sort-name" onclick="sortColumnTable('name', this)" aria-label="Sort by name">Name ↕</button>
+          <button class="sort-btn" id="sort-null" onclick="sortColumnTable('null', this)" aria-label="Sort by null percentage">Null% ↕</button>
+        </div>
+      </div>
+      <div class="col-table-wrap">
+        <table role="table" aria-label="Column details">
+          <thead>
+            <tr>
+              <th onclick="sortColumnTable('name',this)" scope="col">Name <span class="sort-arrow" aria-hidden="true">↕</span></th>
+              <th onclick="sortColumnTable('type',this)" scope="col">Type <span class="sort-arrow" aria-hidden="true">↕</span></th>
+              <th onclick="sortColumnTable('null',this)" scope="col">Null % <span class="sort-arrow" aria-hidden="true">↕</span></th>
+              <th onclick="sortColumnTable('unique',this)" scope="col">Unique <span class="sort-arrow" aria-hidden="true">↕</span></th>
+              <th scope="col">Mean</th>
+              <th scope="col">Median</th>
+              <th scope="col">Mode</th>
+            </tr>
+          </thead>
+          <tbody id="col-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="stats-panel" role="region" aria-label="Column statistics panel">
+      <div class="stats-panel-header">
+        <h2>Column Statistics</h2>
+        <span style="font-size:0.73rem;color:var(--muted)">Click a column to explore</span>
+      </div>
+      <div class="col-pills" id="col-pills" role="group" aria-label="Column selector pills"></div>
+      <div class="stats-content" id="stats-content">
+        <div class="no-col">👆 Select a column above to see its statistics and distribution chart</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 4: DATA QUALITY + QUICK FIX -->
+  <div id="quality-section">
+    <div class="sec-label" id="quality-sec-label" role="heading" aria-level="2">04 — Data Health &amp; Completeness</div>
+    <div class="quality-card" role="region" aria-label="Data quality overview">
+      <div class="quality-card-header">
+        <h2>Fill Rate per Column</h2>
+        <div class="qf-actions" role="group" aria-label="Quick fix actions">
+          <button class="btn-qf red" id="btn-drop-dupes" style="display:none" onclick="quickFixDropDuplicates()" aria-label="Drop all duplicate rows">🗑 Drop Duplicates</button>
+          <button class="btn-qf" id="btn-fill-mean" style="display:none" onclick="quickFixFillNulls('mean')" aria-label="Fill null values with column mean">∑ Fill Nulls (Mean)</button>
+          <button class="btn-qf" id="btn-fill-median" style="display:none" onclick="quickFixFillNulls('median')" aria-label="Fill null values with column median">↕ Fill Nulls (Median)</button>
+          <button class="btn-qf purple" onclick="openMlPrep()" aria-label="Open Machine Learning Preprocessing options">⚙️ ML Prep & Clean</button>
+          <button class="btn-qf green" onclick="exportCleanedCSV()" aria-label="Export current data as cleaned CSV">⬇ Export CSV</button>
+        </div>
+      </div>
+      <div class="quality-grid" id="quality-grid"></div>
+    </div>
+  </div>
+
+  <!-- SECTION 5: CORRELATIONS -->
+  <div id="corr-section">
+    <div class="sec-label" id="corr-sec-label" role="heading" aria-level="2">05 — Correlations</div>
+    <div class="corr-card" role="region" aria-label="Correlation analysis">
+      <div class="corr-card-header">
+        <h2>Pearson Correlation Pairs</h2>
+        <div class="corr-view-tabs" role="tablist" aria-label="Correlation view type">
+          <button class="corr-view-tab active" id="corr-tab-bars" role="tab" aria-selected="true" onclick="switchCorrView('bars',this)">Progress Bars</button>
+          <button class="corr-view-tab" id="corr-tab-heatmap" role="tab" aria-selected="false" onclick="switchCorrView('heatmap',this)">🔥 Heatmap</button>
+        </div>
+      </div>
+      <div class="corr-body">
+        <div id="corr-bars-view">
+          <div class="corr-grid" id="corr-grid" role="list" aria-label="Correlation pairs"></div>
+        </div>
+        <div id="corr-heatmap-view" aria-label="Correlation heatmap">
+          <div class="heatmap-scroll" id="heatmap-wrap"></div>
+          <div class="heatmap-legend" aria-label="Heatmap colour scale">
+            <span>−1.0</span>
+            <div class="heatmap-legend-bar" aria-hidden="true"></div>
+            <span>+1.0</span>
+            <span style="margin-left:auto;font-size:0.6rem">Red = negative · Blue = positive</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 6: OUTLIERS + BOX PLOTS -->
+  <div id="outlier-section">
+    <div class="sec-label" id="outlier-sec-label" role="heading" aria-level="2">06 — Outlier Explorer</div>
+    <div class="outlier-card" role="region" aria-label="Outlier analysis">
+      <div class="outlier-header">
+        <h2>Outlier Rows by Column (IQR Method)</h2>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-family:var(--mono);font-size:0.65rem;color:var(--muted)" id="outlier-count-badge" aria-live="polite">—</span>
+          <button class="btn btn-sm" id="btn-boxplot" onclick="toggleBoxPlot()" aria-expanded="false" aria-controls="boxplot-panel">📦 Box Plots</button>
+        </div>
+      </div>
+      <div class="outlier-body">
+        <div class="outlier-col-tabs" id="outlier-col-tabs" role="tablist" aria-label="Select column for outlier view"></div>
+        <div id="outlier-content" role="region" aria-label="Outlier details">
+          <div class="outlier-empty">Select a column above to view its outlier rows</div>
+        </div>
+      </div>
+      <!-- BOX PLOT PANEL -->
+      <div id="boxplot-panel" aria-label="Box plot visualization">
+        <div class="boxplot-panel-head">
+          <span style="font-family:var(--serif);font-size:0.9rem;font-weight:600">Box Plot Visualization</span>
+          <span style="font-family:var(--mono);font-size:0.63rem;color:var(--muted)">Min · Q1 · Median · Q3 · Max · Outliers</span>
+        </div>
+        <div style="padding:14px 18px">
+          <div class="boxplot-col-tabs" id="boxplot-col-tabs" role="tablist" aria-label="Select column for box plot"></div>
+          <div class="boxplot-canvas-area" role="img" aria-label="Box plot chart">
+            <canvas id="boxplot-canvas"></canvas>
+          </div>
+          <div class="boxplot-stats" id="boxplot-stats"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /dashboard -->
+
+<!-- ── VISUALIZATION BUILDER MODAL ── -->
+<div id="vis-modal" role="dialog" aria-modal="true" aria-labelledby="vis-modal-title">
+  <div class="vis-modal-inner">
+    <div class="vis-modal-head">
+      <div>
+        <h2 id="vis-modal-title">Visualization Builder</h2>
+        <p>Pick chart type, select axes, and render</p>
+      </div>
+      <button class="btn-ghost" onclick="closeVisBuilder()" title="Close (Esc)" aria-label="Close visualization builder">✕</button>
+    </div>
+
+    <div class="vis-modal-body">
+      <div class="vis-controls">
+        <div class="ctrl-group">
+          <label id="chart-type-label">Chart Type</label>
+          <div class="chart-type-grid" id="ct-grid" role="group" aria-labelledby="chart-type-label">
+            <button class="ct-btn active" data-chart="bar"       onclick="selectChartType(this,'bar')"       aria-pressed="true"><span class="ct-icon" aria-hidden="true">📊</span>Bar</button>
+            <button class="ct-btn"        data-chart="line"      onclick="selectChartType(this,'line')"      aria-pressed="false"><span class="ct-icon" aria-hidden="true">📈</span>Line</button>
+            <button class="ct-btn"        data-chart="scatter"   onclick="selectChartType(this,'scatter')"   aria-pressed="false"><span class="ct-icon" aria-hidden="true">🔵</span>Scatter</button>
+            <button class="ct-btn"        data-chart="pie"       onclick="selectChartType(this,'pie')"       aria-pressed="false"><span class="ct-icon" aria-hidden="true">🥧</span>Pie</button>
+            <button class="ct-btn"        data-chart="doughnut"  onclick="selectChartType(this,'doughnut')"  aria-pressed="false"><span class="ct-icon" aria-hidden="true">🍩</span>Donut</button>
+            <button class="ct-btn"        data-chart="histogram" onclick="selectChartType(this,'histogram')" aria-pressed="false"><span class="ct-icon" aria-hidden="true">📉</span>Histogram</button>
+            <button class="ct-btn"        data-chart="boxplot"   onclick="selectChartType(this,'boxplot')"   aria-pressed="false"><span class="ct-icon" aria-hidden="true">📦</span>Box Plot</button>
+            <button class="ct-btn"        data-chart="radar"     onclick="selectChartType(this,'radar')"     aria-pressed="false"><span class="ct-icon" aria-hidden="true">🕸️</span>Radar</button>
+          </div>
+        </div>
+
+        <div class="chart-hint" id="chart-hint" role="note">💡 Choose a chart type and compatible columns from below.</div>
+        <div class="vis-helper" id="vis-compatibility" aria-live="polite">Select a chart type and compatible columns from the lists below.</div>
+
+        <div class="ctrl-group">
+          <label for="vis-x">X Axis / Category</label>
+          <select id="vis-x" onchange="autoRenderVis()"></select>
+        </div>
+
+        <div class="ctrl-group" id="vis-y-group">
+          <label for="vis-y">Y Axis / Value</label>
+          <select id="vis-y" onchange="autoRenderVis()"></select>
+        </div>
+
+        <div class="ctrl-group" id="vis-y2-group" style="display:none">
+          <label for="vis-y2">Compare With (Y-Axis 2)</label>
+          <select id="vis-y2" onchange="autoRenderVis()"></select>
+        </div>
+
+        <div class="ctrl-group" style="margin-top: 5px;">
+          <label class="checkbox-group">
+            <input type="checkbox" id="vis-show-labels" onchange="autoRenderVis()" />
+            <span>Show Data Labels</span>
+          </label>
+        </div>
+
+        <button class="btn btn-primary" style="width:100%" onclick="renderVisChart()" aria-label="Render the selected chart">▶ Render Chart</button>
+
+        <div style="border-top:1px solid var(--border);padding-top:14px;">
+          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase;margin-bottom:8px">Suggested</div>
+          <div id="suggestions" style="display:flex;flex-direction:column;gap:6px;" role="list" aria-label="Suggested charts"></div>
+        </div>
+      </div>
+
+      <div class="vis-canvas-area">
+        <div class="vis-chart-wrap" id="vis-chart-wrap" role="img" aria-label="Chart output area">
+          <div class="vis-chart-actions" id="vis-chart-actions" style="display:none">
+            <button class="btn btn-sm" onclick="downloadChart()" aria-label="Download chart as PNG">⬇ PNG</button>
+          </div>
+          <div class="vis-empty" id="vis-empty">
+            <span class="vis-empty-icon" aria-hidden="true">📊</span>
+            Select columns and click Render to create a chart
+          </div>
+          <canvas id="vis-canvas" style="display:none; height:100%; width:100%;" aria-label="Chart canvas"></canvas>
+        </div>
+        <div class="vis-insights" id="vis-insights" role="list" aria-label="Chart insights"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── REPORT MODAL ── -->
+<div id="report-modal" role="dialog" aria-modal="true" aria-labelledby="report-modal-title">
+  <div class="report-modal-inner">
+    <div class="report-head">
+      <div>
+        <h2 id="report-modal-title">EDA Report</h2>
+        <p style="font-size:0.78rem;color:var(--muted)" id="report-subtitle">—</p>
+      </div>
+      <button class="btn-ghost" onclick="closeReport()" aria-label="Close report">✕</button>
+    </div>
+    <div id="report-content" role="region" aria-label="Report content">
+      <p style="color:var(--muted);text-align:center;padding:40px">Generating report...</p>
+    </div>
+    <div class="report-footer">
+      <button class="btn btn-sm" onclick="closeReport()">Close</button>
+      <button class="btn btn-primary btn-sm" onclick="downloadReport()">⬇ Download HTML</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── ML PREP & CLEAN MODAL ── -->
+<div id="ml-modal" role="dialog" aria-modal="true" aria-labelledby="ml-modal-title">
+  <div class="ml-modal-inner">
+    <div class="report-head">
+      <div>
+        <h2 id="ml-modal-title">Advanced Clean & ML Prep</h2>
+        <p style="font-size:0.78rem;color:var(--muted)">Configure transformations before exporting</p>
+      </div>
+      <button class="btn-ghost" onclick="closeMlPrep()" aria-label="Close">✕</button>
+    </div>
+    
+    <div style="flex:1; overflow-y:auto;">
+      <div class="ml-section">
+        <h3>🗑️ Drop Columns</h3>
+        <p>Select columns you want to remove from the exported dataset.</p>
+        <div class="col-drop-grid" id="ml-drop-grid">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <div class="ml-section">
+        <h3>🤖 Machine Learning Formatting</h3>
+        <p>Prepare your data so it can be fed directly into Scikit-Learn or TensorFlow.</p>
+        <label class="checkbox-group">
+          <input type="checkbox" id="ml-encode-cat" />
+          <span><strong>One-Hot Encode Categoricals:</strong> Convert text categories into binary columns (0 or 1).</span>
+        </label>
+        <label class="checkbox-group">
+          <input type="checkbox" id="ml-scale-num" />
+          <span><strong>Standardize Numeric Features:</strong> Scale numeric data so mean=0 and variance=1 (Z-score scaling).</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="report-footer">
+      <button class="btn btn-sm" onclick="closeMlPrep()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="applyAndExportMlPrep()">⬇ Apply & Export CSV</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════
+   STATE
+══════════════════════════════ */
+let edaData         = null;
+let cleanedData     = null;   // working copy for quick-fix / export
+let colChart        = null;
+let visChart        = null;
+let boxplotChart    = null;
+let activeCol       = null;
+let activeChartType = 'bar';
+let rawDateData     = {};
+let columnSortKey   = 'name';
+let columnSortAsc   = true;
+let allColumns      = [];
+let activeBoxplotCol = null;
+let dataModified    = false;
+let fileId          = null;
+let appliedFixes    = { drop_duplicates: false, fill_nulls: null };
+
+const VIS_COLORS = ['#1d4ed8','#6d28d9','#15803d','#b45309','#b91c1c','#0e7490','#be185d','#4d7c0f','#c2410c','#5b21b6'];
+
+Chart.register(ChartDataLabels);
+
+/* ══════════════════════════════
+   THEME TOGGLE
+══════════════════════════════ */
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  document.getElementById('theme-toggle').textContent = isDark ? '🌙' : '☀️';
+  localStorage.setItem('dl-theme', isDark ? 'light' : 'dark');
+}
+// Restore saved theme on load
+(function() {
+  const saved = localStorage.getItem('dl-theme') || 'light';
+  document.documentElement.setAttribute('data-theme', saved);
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('theme-toggle');
+    if (btn) btn.textContent = saved === 'dark' ? '☀️' : '🌙';
+  });
+})();
+
+/* ══════════════════════════════
+   TOAST SYSTEM
+══════════════════════════════ */
+function toast(msg, type = 'info', duration = 3500) {
+  const icons = { info:'ℹ️', success:'✅', error:'❌', warning:'⚠️' };
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.setAttribute('role', 'alert');
+  el.innerHTML = `<span aria-hidden="true">${icons[type]||''}</span><span>${escHtml(msg)}</span>`;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => {
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 280);
+  }, duration);
+}
+
+/* ══════════════════════════════
+   HTML ESCAPING (XSS safe)
+══════════════════════════════ */
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+/* ══════════════════════════════
+   DRAG & DROP + FILE INPUT
+══════════════════════════════ */
+const uploadBox = document.getElementById('upload-box');
+uploadBox.addEventListener('dragover',  e => { e.preventDefault(); uploadBox.classList.add('drag'); });
+uploadBox.addEventListener('dragleave', () => uploadBox.classList.remove('drag'));
+uploadBox.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadBox.classList.remove('drag');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+uploadBox.addEventListener('click', e => {
+  if (e.target.tagName !== 'BUTTON') document.getElementById('file-input').click();
+});
+uploadBox.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); document.getElementById('file-input').click(); }
+});
+document.getElementById('file-input').addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+/* ══════════════════════════════
+   SCROLL TO TOP
+══════════════════════════════ */
+window.addEventListener('scroll', () => {
+  document.getElementById('scroll-top').classList.toggle('show', window.scrollY > 300);
+});
+
+/* ══════════════════════════════
+   KEYBOARD SHORTCUTS
+══════════════════════════════ */
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeVisBuilder(); closeReport(); }
+});
+
+/* ══════════════════════════════
+   FILE HANDLING — large file support
+══════════════════════════════ */
+const LOADER_MSGS = [
+  'Reading file structure…',
+  'Detecting column types…',
+  'Computing distributions…',
+  'Running correlation engine…',
+  'Detecting outliers (IQR)…',
+  'Assembling your dashboard…',
+];
+
+function handleFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['csv','xlsx','xls'].includes(ext)) {
+    toast('Please upload a CSV or Excel (.xlsx / .xls) file.', 'error');
+    return;
+  }
+
+  show('loader');
+  const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+  document.getElementById('loader-sub').textContent = `${file.name} · ${sizeMB} MB`;
+
+  let idx = 0;
+  const msgEl = document.getElementById('loader-msg');
+  const interval = setInterval(() => {
+    msgEl.textContent = LOADER_MSGS[idx++ % LOADER_MSGS.length];
+  }, 600);
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  fetch('/upload', { method: 'POST', body: fd })
+    .then(r => {
+      if (!r.ok) throw new Error(`Server error: ${r.status}`);
+      return r.json();
+    })
+    .then(data => {
+      clearInterval(interval);
+      if (data.error) {
+        toast('Error: ' + data.error, 'error');
+        show('upload-screen');
+        return;
+      }
+      edaData = data;
+      fileId = data.file_id;
+      appliedFixes = { drop_duplicates: false, fill_nulls: null };
+      cleanedData = JSON.parse(JSON.stringify(data)); // deep copy
+      dataModified = false;
+      renderDashboard(data, file.name);
+      toast('File loaded successfully!', 'success');
+    })
+    .catch(err => {
+      clearInterval(interval);
+      toast('Upload failed: ' + err.message + '. Is the server running?', 'error');
+      show('upload-screen');
+    });
+}
+
+/* ══════════════════════════════
+   SAMPLE DATA
+══════════════════════════════ */
+function loadSampleData() {
+  const rows = 312;
+  const mockData = {
+    shape: { rows, cols: 8 },
+    duplicate_rows: 4,
+    columns: [
+      { name:'Age',        type:'numeric',     null_count:3,  null_pct:1.0,  unique_count:45,
+        stats:{ mean:'38.2',median:'37.0',std:'11.4',min:'18',max:'72',skew:'0.32',kurtosis:'-0.14',outlier_count:8 },
+        boxplot:{ min:18, q1:29, median:37, q3:47, max:72, outliers:[19,70,72] },
+        histogram:{ bin_edges:[18,25,32,39,46,53,60,72], counts:[32,58,74,62,45,26,15] } },
+      { name:'Salary',     type:'numeric',     null_count:5,  null_pct:1.6,  unique_count:289,
+        stats:{ mean:'62400',median:'58000',std:'22100',min:'22000',max:'145000',skew:'1.12',kurtosis:'0.88',outlier_count:14 },
+        boxplot:{ min:22000, q1:44000, median:58000, q3:80000, max:145000, outliers:[135000,140000,145000] },
+        histogram:{ bin_edges:[22000,38000,54000,70000,86000,102000,118000,145000], counts:[28,62,88,72,34,16,12] } },
+      { name:'Experience', type:'numeric',     null_count:0,  null_pct:0.0,  unique_count:22,
+        stats:{ mean:'7.8',median:'7.0',std:'5.2',min:'0',max:'25',skew:'0.75',kurtosis:'0.12',outlier_count:6 },
+        boxplot:{ min:0, q1:3, median:7.0, q3:12, max:25, outliers:[24,25] },
+        histogram:{ bin_edges:[0,3,6,9,12,15,18,25], counts:[44,68,72,58,34,22,14] } },
+      { name:'Score',      type:'numeric',     null_count:12, null_pct:3.8,  unique_count:98,
+        stats:{ mean:'74.6',median:'76.0',std:'14.2',min:'32',max:'99',skew:'-0.28',kurtosis:'-0.34',outlier_count:5 },
+        boxplot:{ min:32, q1:65, median:76, q3:86, max:99, outliers:[32,35] },
+        histogram:{ bin_edges:[32,45,58,65,72,79,86,99], counts:[8,18,38,62,74,66,46] } },
+      { name:'Hours/Week', type:'numeric',     null_count:2,  null_pct:0.6,  unique_count:18,
+        stats:{ mean:'41.3',median:'40.0',std:'8.6',min:'20',max:'68',skew:'0.44',kurtosis:'0.22',outlier_count:10 },
+        boxplot:{ min:20, q1:36, median:40, q3:46, max:68, outliers:[20,68] },
+        histogram:{ bin_edges:[20,28,32,36,40,44,48,68], counts:[12,24,42,76,72,46,40] } },
+      { name:'Department', type:'categorical', null_count:0,  null_pct:0.0,  unique_count:6,
+        bar_chart:{ labels:['Engineering','Marketing','Sales','HR','Finance','Operations'], counts:[98,62,54,40,36,22] } },
+      { name:'Education',  type:'categorical', null_count:8,  null_pct:2.6,  unique_count:4,
+        bar_chart:{ labels:["Bachelor's","Master's","PhD","Diploma"], counts:[158,96,34,24] } },
+      { name:'Status',     type:'categorical', null_count:0,  null_pct:0.0,  unique_count:3,
+        bar_chart:{ labels:['Active','On Leave','Resigned'], counts:[244,42,26] } },
+    ],
+    correlations:[
+      {col_a:'Salary',     col_b:'Experience', r:0.74},
+      {col_a:'Salary',     col_b:'Age',        r:0.61},
+      {col_a:'Experience', col_b:'Age',         r:0.58},
+      {col_a:'Score',      col_b:'Salary',      r:0.42},
+      {col_a:'Hours/Week', col_b:'Score',        r:-0.31},
+      {col_a:'Experience', col_b:'Score',        r:0.28},
+      {col_a:'Age',        col_b:'Score',        r:0.19},
+      {col_a:'Hours/Week', col_b:'Salary',       r:0.22},
+    ],
+    scatter:{ col_a:'Salary', col_b:'Experience',
+      data: Array.from({length:80},()=>[Math.round(Math.random()*24), Math.round(22000+Math.random()*120000)]) },
+    preview_rows: Array.from({length:10},(_,i)=>({
+      Age: 22+Math.floor(Math.random()*50),
+      Salary: 25000+Math.floor(Math.random()*120000),
+      Experience: Math.floor(Math.random()*25),
+      Score: 35+Math.floor(Math.random()*64),
+      'Hours/Week': 22+Math.floor(Math.random()*46),
+      Department: ['Engineering','Marketing','Sales','HR','Finance'][Math.floor(Math.random()*5)],
+      Education: ["Bachelor's","Master's","PhD","Diploma"][Math.floor(Math.random()*4)],
+      Status: ['Active','On Leave','Resigned'][Math.floor(Math.random()*3)],
+    })),
+  };
+
+  edaData = mockData;
+  fileId = 'sample';
+  appliedFixes = { drop_duplicates: false, fill_nulls: null };
+  cleanedData = JSON.parse(JSON.stringify(mockData));
+  dataModified = false;
+  renderDashboard(mockData, 'sample_employee_data.csv');
+  toast('Sample data loaded!', 'success');
+}
+
+/* ══════════════════════════════
+   SHOW / HIDE SCREENS
+══════════════════════════════ */
+function show(id) {
+  ['upload-screen','loader','dashboard'].forEach(s => {
+    const el = document.getElementById(s);
+    el.style.display = s === id ? (id === 'dashboard' ? 'block' : 'flex') : 'none';
+  });
+}
+
+function resetApp() {
+  edaData = null; cleanedData = null; activeCol = null;
+  fileId = null;
+  appliedFixes = { drop_duplicates: false, fill_nulls: null };
+  allColumns = []; dataModified = false;
+  [colChart, visChart, boxplotChart].forEach(c => c && c.destroy());
+  colChart = visChart = boxplotChart = null;
+  document.getElementById('file-input').value = '';
+  document.getElementById('btn-vis-builder').style.display = 'none';
+  document.getElementById('btn-reset').style.display = 'none';
+  document.getElementById('btn-report').style.display = 'none';
+  document.getElementById('file-badge').classList.remove('show');
+  document.getElementById('export-banner').classList.remove('show');
+  show('upload-screen');
+}
+
+/* ══════════════════════════════
+   RENDER DASHBOARD
+══════════════════════════════ */
+function renderDashboard(data, fname) {
+  show('dashboard');
+  document.getElementById('db-fname').textContent = fname;
+  document.getElementById('db-fmeta').textContent =
+    data.shape.rows.toLocaleString() + ' rows × ' + data.shape.cols + ' columns';
+  document.getElementById('badge-name').textContent = fname;
+  document.getElementById('btn-vis-builder').style.display = 'inline-flex';
+  document.getElementById('btn-reset').style.display = 'inline-flex';
+  document.getElementById('btn-report').style.display = 'inline-flex';
+
+  allColumns = [...data.columns];
+
+  renderOverview(data);
+  renderPreview(data);
+  renderColumnTable(data.columns);
+  renderColPills(data.columns);
+  renderQuality(data.columns);
+  renderCorrelations(data);
+  renderOutlierSection(data.columns);
+  setupVisBuilder(data);
+  updateSectionNumbers(data);
+  updateQuickFixButtons(data);
+
+  const first = data.columns.find(c => c.type === 'numeric');
+  if (first) selectCol(first.name);
+}
+
+/* ══════════════════════════════
+   SECTION NUMBERING
+══════════════════════════════ */
+function updateSectionNumbers(data) {
+  let n = 3;
+  document.getElementById('col-sec-label').textContent = `0${n++} — Column Explorer & Statistics`;
+  document.getElementById('quality-sec-label').textContent = `0${n++} — Data Health & Completeness`;
+  document.getElementById('corr-sec-label').textContent  = `0${n++} — Correlations`;
+  document.getElementById('outlier-sec-label').textContent = `0${n++} — Outlier Explorer`;
+}
+
+/* ══════════════════════════════
+   SECTION 1: OVERVIEW
+══════════════════════════════ */
+function renderOverview(data) {
+  const numC  = data.columns.filter(c => c.type === 'numeric').length;
+  const catC  = data.columns.filter(c => c.type === 'categorical').length;
+  const nullC = data.columns.filter(c => c.null_count > 0).length;
+  const dups  = data.duplicate_rows;
+  const totalNulls = data.columns.reduce((s,c) => s + c.null_count, 0);
+
+  const items = [
+    { val: data.shape.rows.toLocaleString(), lbl: 'Rows',           cls: '' },
+    { val: data.shape.cols,                  lbl: 'Columns',        cls: '' },
+    { val: numC,                             lbl: 'Numeric Cols',   cls: '' },
+    { val: catC,                             lbl: 'Categorical',    cls: '' },
+    { val: dups,                             lbl: 'Duplicates',     cls: dups > 0 ? 'warn' : '' },
+    { val: nullC,                            lbl: 'Cols w/ Nulls',  cls: nullC > 0 ? 'warn' : '' },
+  ];
+
+  document.getElementById('overview-grid').innerHTML = items.map(i =>
+    `<div class="ov-card ${i.cls}" role="listitem">
+      <div class="ov-val">${i.val}</div>
+      <div class="ov-label">${i.lbl}</div>
+    </div>`
+  ).join('');
+}
+
+/* ══════════════════════════════
+   SECTION 2: DATA PREVIEW
+══════════════════════════════ */
+function renderPreview(data) {
+  const rows = data.preview_rows;
+  if (!rows || rows.length === 0) { document.getElementById('preview-section').style.display = 'none'; return; }
+  document.getElementById('preview-section').style.display = 'block';
+  const cols = Object.keys(rows[0]);
+
+  document.getElementById('preview-thead').innerHTML =
+    `<tr><th scope="col">#</th>${cols.map(c => `<th scope="col">${escHtml(c)}</th>`).join('')}</tr>`;
+
+  document.getElementById('preview-tbody').innerHTML = rows.map((row, i) =>
+    `<tr>
+      <td class="row-num">${i+1}</td>
+      ${cols.map(c => `<td>${escHtml(String(row[c] ?? ''))}</td>`).join('')}
+    </tr>`
+  ).join('');
+}
+
+/* ══════════════════════════════
+   SECTION 3a: COLUMN TABLE
+══════════════════════════════ */
+function renderColumnTable(columns) {
+  document.getElementById('col-tbody').innerHTML = columns.map(col => {
+    const s   = col.stats || {};
+    const bc  = col.type === 'numeric' ? 'type-num' : col.type === 'categorical' ? 'type-cat' : 'type-dt';
+    const mode = col.bar_chart ? escHtml(col.bar_chart.labels[0]) : '—';
+    const isActive = col.name === activeCol ? 'active-row' : '';
+    return `<tr class="${isActive}" data-col="${escHtml(col.name)}" onclick="selectColFromTable(this)" role="row" tabindex="0" aria-label="Column: ${escHtml(col.name)}">
+      <td>${escHtml(col.name)}</td>
+      <td><span class="type-badge ${bc}">${col.type}</span></td>
+      <td>${col.null_pct}%</td>
+      <td>${col.unique_count.toLocaleString()}</td>
+      <td>${s.mean   !== undefined ? s.mean   : '—'}</td>
+      <td>${s.median !== undefined ? s.median : '—'}</td>
+      <td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${mode}</td>
+    </tr>`;
+  }).join('');
+}
+
+function selectColFromTable(row) { selectCol(row.getAttribute('data-col')); }
+
+function filterColumns(query) {
+  const q = query.toLowerCase();
+  const filtered = allColumns.filter(c => c.name.toLowerCase().includes(q));
+  renderColumnTable(filtered);
+  renderColPills(filtered);
+}
+
+function sortColumnTable(key, btn) {
+  if (columnSortKey === key) { columnSortAsc = !columnSortAsc; }
+  else { columnSortKey = key; columnSortAsc = true; }
+  document.querySelectorAll('thead th').forEach(t => t.classList.remove('sorted'));
+  if (btn) btn.classList.add('sorted');
+
+  const sorted = [...allColumns].sort((a,b) => {
+    let va, vb;
+    if      (key === 'name')   { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); }
+    else if (key === 'type')   { va = a.type; vb = b.type; }
+    else if (key === 'null')   { va = a.null_pct; vb = b.null_pct; }
+    else if (key === 'unique') { va = a.unique_count; vb = b.unique_count; }
+    if (va < vb) return columnSortAsc ? -1 : 1;
+    if (va > vb) return columnSortAsc ? 1  : -1;
+    return 0;
+  });
+  renderColumnTable(sorted);
+}
+
+/* ══════════════════════════════
+   SECTION 3b: COL PILLS + STATS
+══════════════════════════════ */
+function renderColPills(columns) {
+  const wrap = document.getElementById('col-pills');
+  wrap.innerHTML = columns.map(col => {
+    const isActive = col.name === activeCol ? 'active' : '';
+    return `<button class="col-pill-btn ${isActive}" data-name="${escHtml(col.name)}"
+      onclick="selectColFromPill(this)" aria-pressed="${col.name === activeCol}">${escHtml(col.name)}</button>`;
+  }).join('');
+}
+
+function selectColFromPill(btn) { selectCol(btn.getAttribute('data-name')); }
+
+function selectCol(name) {
+  activeCol = name;
+  document.querySelectorAll('.col-pill-btn').forEach(p => {
+    p.classList.toggle('active', p.getAttribute('data-name') === name);
+    p.setAttribute('aria-pressed', p.getAttribute('data-name') === name);
+  });
+  document.querySelectorAll('#col-tbody tr').forEach(r =>
+    r.classList.toggle('active-row', r.getAttribute('data-col') === name));
+
+  const col = edaData.columns.find(c => c.name === name);
+  if (!col) return;
+  if (col.type === 'numeric')      renderNumericStats(col);
+  else if (col.type === 'categorical') renderCatStats(col);
+  else                             renderDateStats(col);
+}
+
+function renderNumericStats(col) {
+  const s = col.stats;
+  const content = document.getElementById('stats-content');
+  const hd = col.histogram;
+  let modeVal = '—';
+  if (hd) {
+    const maxIdx = hd.counts.indexOf(Math.max(...hd.counts));
+    modeVal = hd.bin_edges[maxIdx] !== undefined ? Number(hd.bin_edges[maxIdx]).toFixed(2) : '—';
+  }
+
+  const statItems = [
+    {v:s.mean,l:'Mean'},{v:s.median,l:'Median'},{v:modeVal,l:'Mode'},
+    {v:s.std,l:'Std Dev'},{v:s.min,l:'Min'},{v:s.max,l:'Max'},
+    {v:s.skew,l:'Skewness'},{v:s.kurtosis,l:'Kurtosis'},{v:s.outlier_count,l:'Outliers'},
+  ];
+
+  content.innerHTML = `
+    <div class="stat-grid">
+      ${statItems.map(i => `
+        <div class="stat-item">
+          <div class="stat-val">${i.v !== undefined && i.v !== null ? escHtml(String(i.v)) : '—'}</div>
+          <div class="stat-lbl">${i.l}</div>
+        </div>`).join('')}
+    </div>
+    <div class="chart-area" role="img" aria-label="Distribution histogram for ${escHtml(col.name)}">
+      <canvas id="col-chart-canvas"></canvas>
+    </div>`;
+
+  colChart && colChart.destroy();
+  const labels = hd ? hd.bin_edges.slice(0,-1).map((v,i2) => v.toFixed(1)+'–'+hd.bin_edges[i2+1].toFixed(1)) : [];
+  colChart = new Chart(document.getElementById('col-chart-canvas'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: hd ? hd.counts : [], backgroundColor: 'rgba(29,78,216,0.22)', borderColor: 'rgba(29,78,216,0.8)', borderWidth: 1.5, borderRadius: 4 }] },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { font:{family:'Roboto Mono',size:11}, color:'gray', maxRotation:45 }, grid: { color: 'rgba(128,128,128,0.15)' } },
+        y: { ticks: { font:{family:'Roboto Mono',size:11}, color:'gray' }, grid: { color: 'rgba(128,128,128,0.15)' } }
+      }
+    }
+  });
+}
+
+function renderCatStats(col) {
+  const content = document.getElementById('stats-content');
+  const bc = col.bar_chart;
+  const total = bc ? bc.counts.reduce((a,b) => a+b, 0) : 0;
+  const mode = bc ? escHtml(bc.labels[0]) : '—';
+  const displayLabels = bc ? bc.labels.slice(0,10) : [];
+  const displayCounts = bc ? bc.counts.slice(0,10) : [];
+
+  content.innerHTML = `
+    <div class="stat-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-item"><div class="stat-val">${col.unique_count.toLocaleString()}</div><div class="stat-lbl">Unique</div></div>
+      <div class="stat-item"><div class="stat-val" style="font-size:0.95rem;word-break:break-word">${mode}</div><div class="stat-lbl">Mode (Top)</div></div>
+      <div class="stat-item"><div class="stat-val">${col.null_pct}%</div><div class="stat-lbl">Null %</div></div>
+    </div>
+    <div class="chart-area" style="margin:14px 0" role="img" aria-label="Category distribution for ${escHtml(col.name)}">
+      <canvas id="col-chart-canvas"></canvas>
+    </div>
+    <div style="font-family:var(--mono);font-size:0.69rem;color:var(--muted);line-height:2">
+      ${displayLabels.map((l,i) => `<span style="display:inline-flex;align-items:center;gap:6px;margin-right:10px"><strong>${escHtml(l)}</strong> — ${displayCounts[i].toLocaleString()} (${((displayCounts[i]/total)*100).toFixed(1)}%)</span>`).join('')}
+      ${bc && bc.labels.length > 10 ? `<span style="color:var(--accent);font-size:0.65rem">+${bc.labels.length - 10} more</span>` : ''}
+    </div>`;
+
+  colChart && colChart.destroy();
+  colChart = new Chart(document.getElementById('col-chart-canvas'), {
+    type: 'doughnut',
+    data: {
+      labels: displayLabels,
+      datasets: [{ data: displayCounts, backgroundColor: VIS_COLORS.slice(0,displayLabels.length).map(c=>c+'cc'), borderColor: VIS_COLORS.slice(0,displayLabels.length), borderWidth: 2, hoverOffset: 6 }]
+    },
+    options: {
+      responsive: true, cutout: '60%',
+      plugins: {
+        legend: { position:'right', labels:{ font:{family:'Roboto Mono',size:11}, color:'gray', boxWidth:10, padding:8 } },
+        tooltip: { callbacks: { label: ctx => { const pct = ((ctx.parsed/total)*100).toFixed(1); return ` ${ctx.label}: ${ctx.parsed.toLocaleString()} (${pct}%)`; } } }
+      }
+    }
+  });
+}
+
+function renderDateStats(col) {
+  document.getElementById('stats-content').innerHTML = `
+    <div class="no-col" style="padding:30px">
+      📅 Date column — <strong>${escHtml(col.name)}</strong><br/>
+      <span style="color:var(--muted);font-size:0.8rem;font-weight:300">Use the Visualization Builder to analyse time-based columns with clearer charts.</span>
+    </div>`;
+}
+
+/* ══════════════════════════════
+   SECTION 4: CORRELATIONS
+══════════════════════════════ */
+function renderCorrelations(data) {
+  const grid = document.getElementById('corr-grid');
+  const corrs = data.correlations;
+  if (!corrs || corrs.length === 0) {
+    grid.innerHTML = `<div class="corr-empty">No numeric correlations found in this dataset.</div>`;
+    return;
+  }
+
+  const sorted = [...corrs].sort((a,b) => Math.abs(b.r) - Math.abs(a.r));
+
+  grid.innerHTML = sorted.map(c => {
+    const r = Number(c.r);
+    const abs = Math.abs(r);
+    const pct = (abs * 100).toFixed(0);
+    const color = r > 0 ? '#1d4ed8' : '#b91c1c';
+    const strength = abs >= 0.7 ? 'Strong' : abs >= 0.4 ? 'Moderate' : 'Weak';
+    return `<div class="corr-item" onclick="openScatterForCorr('${escHtml(c.col_a)}','${escHtml(c.col_b)}')" title="Click to view scatter plot" role="listitem" tabindex="0" aria-label="${escHtml(c.col_a)} vs ${escHtml(c.col_b)}: r=${r.toFixed(3)}, ${strength}">
+      <div class="corr-pair">${escHtml(c.col_a)} × ${escHtml(c.col_b)}</div>
+      <div class="corr-bar-wrap"><div class="corr-bar" style="width:${pct}%;background:${color}"></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div class="corr-val" style="color:${color}">${r > 0 ? '+' : ''}${r.toFixed(3)}</div>
+        <div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted)">${strength}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Build heatmap
+  buildHeatmap(data);
+}
+
+function switchCorrView(view, btn) {
+  document.getElementById('corr-bars-view').style.display   = view === 'bars'    ? 'block' : 'none';
+  document.getElementById('corr-heatmap-view').style.display = view === 'heatmap' ? 'block' : 'none';
+  document.querySelectorAll('.corr-view-tab').forEach(t => {
+    t.classList.toggle('active', t === btn);
+    t.setAttribute('aria-selected', t === btn);
+  });
+}
+
+function buildHeatmap(data) {
+  const numCols = data.columns.filter(c => c.type === 'numeric').map(c => c.name);
+  if (numCols.length < 2) {
+    document.getElementById('heatmap-wrap').innerHTML = '<p style="padding:30px;text-align:center;color:var(--muted);font-size:0.82rem">Need at least 2 numeric columns for heatmap.</p>';
+    return;
+  }
+
+  const matrix = {};
+  numCols.forEach(a => {
+    matrix[a] = {};
+    numCols.forEach(b => { matrix[a][b] = a === b ? 1 : null; });
+  });
+  (data.correlations || []).forEach(c => {
+    if (matrix[c.col_a]) matrix[c.col_a][c.col_b] = Number(c.r);
+    if (matrix[c.col_b]) matrix[c.col_b][c.col_a] = Number(c.r);
+  });
+
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+  function heatColor(v) {
+    if (v === null) return 'var(--bg)';
+    const t = Math.abs(v);
+    if (isDark) {
+      if (v > 0) {
+        return `rgb(${Math.round(17 + 74 * t)},${Math.round(16 + 122 * t)},${Math.round(9 + 231 * t)})`;
+      } else {
+        return `rgb(${Math.round(17 + 231 * t)},${Math.round(16 + 97 * t)},${Math.round(9 + 104 * t)})`;
+      }
+    } else {
+      if (v > 0) {
+        return `rgb(${Math.round(245 - 216 * t)},${Math.round(244 - 166 * t)},${Math.round(240 - 24 * t)})`;
+      } else {
+        return `rgb(${Math.round(245 - 60 * t)},${Math.round(244 - 216 * t)},${Math.round(240 - 212 * t)})`;
+      }
+    }
+  }
+
+  let html = '<table class="heatmap-table" role="table" aria-label="Correlation heatmap"><thead><tr><th scope="col"></th>';
+  numCols.forEach(c => { html += `<th scope="col" title="${escHtml(c)}">${escHtml(c.length > 8 ? c.slice(0,7)+'…' : c)}</th>`; });
+  html += '</tr></thead><tbody>';
+  numCols.forEach(rowName => {
+    html += `<tr><th scope="row" style="text-align:left;padding:6px 8px;background:var(--bg);color:var(--muted);font-weight:500;white-space:nowrap">${escHtml(rowName.length > 8 ? rowName.slice(0,7)+'…' : rowName)}</th>`;
+    numCols.forEach(colName => {
+      const v = matrix[rowName][colName];
+      const bg = heatColor(v);
+      const textColor = isDark ? '#ffffff' : (Math.abs(v) > 0.5 ? '#ffffff' : '#181612');
+      const display = v !== null ? (v === 1 ? '1.00' : v.toFixed(2)) : '—';
+      const label = `${escHtml(rowName)} vs ${escHtml(colName)}: ${display}`;
+      html += `<td style="background:${bg}; color:${textColor};" title="${label}" aria-label="${label}" onclick="openScatterForCorr('${escHtml(rowName)}','${escHtml(colName)}')">${display}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('heatmap-wrap').innerHTML = html;
+}
+
+function openScatterForCorr(colA, colB) {
+  openVisBuilder();
+  setTimeout(() => {
+    document.getElementById('vis-x').value = colA;
+    document.getElementById('vis-y').value = colB;
+    selectChartType(document.querySelector('.ct-btn[data-chart="scatter"]'), 'scatter');
+    renderVisChart();
+  }, 100);
+}
+
+/* ══════════════════════════════
+   SECTION 6: OUTLIER EXPLORER + BOX PLOTS
+══════════════════════════════ */
+function renderOutlierSection(columns) {
+  const numCols = columns.filter(c => c.type === 'numeric' && c.stats && c.stats.outlier_count > 0);
+  const section = document.getElementById('outlier-section');
+  if (numCols.length === 0) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+
+  const totalOutliers = numCols.reduce((sum,c) => sum + (c.stats?.outlier_count||0), 0);
+  document.getElementById('outlier-count-badge').textContent = totalOutliers + ' total outliers detected';
+
+  const tabs = document.getElementById('outlier-col-tabs');
+  tabs.innerHTML = numCols.map((c, i) =>
+    `<button class="outlier-tab ${i===0?'active':''}" data-col="${escHtml(c.name)}"
+      onclick="selectOutlierCol(this)" role="tab" aria-selected="${i===0}">${escHtml(c.name)} (${c.stats.outlier_count})</button>`
+  ).join('');
+
+  if (numCols.length > 0) showOutlierTable(numCols[0].name);
+
+  // Build box plot tabs for ALL numeric columns (not just outlier ones)
+  const allNum = columns.filter(c => c.type === 'numeric' && c.stats);
+  const bpTabs = document.getElementById('boxplot-col-tabs');
+  bpTabs.innerHTML = allNum.map((c,i) =>
+    `<button class="boxplot-tab ${i===0?'active':''}" data-col="${escHtml(c.name)}"
+      onclick="selectBoxplotCol(this)" role="tab" aria-selected="${i===0}">${escHtml(c.name)}</button>`
+  ).join('');
+  if (allNum.length > 0) { activeBoxplotCol = allNum[0].name; renderBoxplot(allNum[0]); }
+}
+
+function selectOutlierCol(btn) {
+  document.querySelectorAll('.outlier-tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+  btn.classList.add('active'); btn.setAttribute('aria-selected','true');
+  showOutlierTable(btn.getAttribute('data-col'));
+}
+
+function showOutlierTable(colName) {
+  const col = edaData.columns.find(c => c.name === colName);
+  const content = document.getElementById('outlier-content');
+  const s = col?.stats;
+  const bp = col?.boxplot;
+  if (!s) { content.innerHTML = '<div class="outlier-empty">No outlier data available.</div>'; return; }
+
+  const q1 = bp ? bp.q1 : s.q1;
+  const q3 = bp ? bp.q3 : s.q3;
+  const iqr = q3 && q1 !== undefined ? q3 - q1 : null;
+  const lower = iqr !== null ? (q1 - 1.5 * iqr) : null;
+  const upper = iqr !== null ? (q3 + 1.5 * iqr) : null;
+
+  content.innerHTML = `
+    <div style="padding:12px 18px;background:var(--red-l);border-bottom:1px solid var(--border);font-family:var(--mono);font-size:0.72rem;color:var(--red)" role="alert">
+      IQR method: outliers are values < <strong>${lower !== null ? lower.toFixed(2) : 'N/A'}</strong>
+      or > <strong>${upper !== null ? upper.toFixed(2) : 'N/A'}</strong> &nbsp;·&nbsp;
+      <strong>${s.outlier_count}</strong> outlier${s.outlier_count !== 1 ? 's' : ''} found in <strong>${escHtml(colName)}</strong>
+    </div>
+    <div style="padding:14px 18px;font-family:var(--mono);font-size:0.72rem;color:var(--muted)">
+      Outlier detection uses the IQR method (Q1 − 1.5×IQR, Q3 + 1.5×IQR). 
+      Click <strong>📦 Box Plots</strong> above to visualise the distribution.
+    </div>`;
+}
+
+function toggleBoxPlot() {
+  const panel = document.getElementById('boxplot-panel');
+  const btn   = document.getElementById('btn-boxplot');
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  btn.setAttribute('aria-expanded', !isOpen);
+  btn.textContent = isOpen ? '📦 Box Plots' : '📦 Hide Box Plots';
+}
+
+function selectBoxplotCol(btn) {
+  document.querySelectorAll('.boxplot-tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+  btn.classList.add('active'); btn.setAttribute('aria-selected','true');
+  activeBoxplotCol = btn.getAttribute('data-col');
+  const col = edaData.columns.find(c => c.name === activeBoxplotCol);
+  if (col) renderBoxplot(col);
+}
+
+function renderBoxplot(col) {
+  const s = col.stats;
+  const bp = col.boxplot;
+  if (!s || !bp) return;
+
+  boxplotChart && boxplotChart.destroy();
+
+  const min = bp.min, q1 = bp.q1, median = bp.median, q3 = bp.q3, max = bp.max;
+  const iqr = q3 - q1;
+  const lowerFence = Math.max(min, q1 - 1.5 * iqr);
+  const upperFence = Math.min(max, q3 + 1.5 * iqr);
+
+  boxplotChart = new Chart(document.getElementById('boxplot-canvas'), {
+    type: 'bar',
+    data: {
+      labels: [col.name],
+      datasets: [
+        { label: 'Min→Q1', data: [{ x: col.name, y: q1 - lowerFence }], backgroundColor: 'transparent', borderColor: 'transparent', base: lowerFence, barThickness: 2 },
+        { label: 'IQR Box (Q1→Q3)', data: [{ x: col.name, y: q3 - q1 }], backgroundColor: 'rgba(29,78,216,0.25)', borderColor: '#1d4ed8', borderWidth: 2, base: q1, barThickness: 60 },
+        { label: 'Median', data: [{ x: col.name, y: 0.5 }], backgroundColor: '#1d4ed8', borderColor: '#1d4ed8', borderWidth: 0, base: median - 0.25, barThickness: 60 },
+        { label: 'Q3→Max', data: [{ x: col.name, y: upperFence - q3 }], backgroundColor: 'transparent', borderColor: 'transparent', base: q3, barThickness: 2 },
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: 'bottom', labels: { font:{family:'Roboto Mono',size:11}, color:'gray', boxWidth:10 } },
+        tooltip: {
+          callbacks: {
+            title: () => col.name,
+            label: ctx => {
+              const labels = ['Lower whisker → Q1','Q1 → Q3 (IQR)','Median','Q3 → Upper whisker'];
+              return labels[ctx.datasetIndex] || '';
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { font:{family:'Roboto Mono',size:11}, color:'gray' }, grid:{color:'rgba(128,128,128,0.15)'} },
+        y: { ticks: { font:{family:'Roboto Mono',size:11}, color:'gray' }, grid:{color:'rgba(128,128,128,0.15)'} }
+      }
+    }
+  });
+
+  document.getElementById('boxplot-stats').innerHTML = [
+    { l: 'Min',   v: min.toLocaleString() },
+    { l: 'Q1',    v: q1.toFixed(2) },
+    { l: 'Median',v: median.toLocaleString() },
+    { l: 'Mean',  v: s.mean.toLocaleString() },
+    { l: 'Q3',    v: q3.toFixed(2) },
+    { l: 'Max',   v: max.toLocaleString() },
+    { l: 'IQR',   v: iqr.toFixed(2) },
+    { l: 'Lower fence', v: lowerFence.toFixed(2) },
+    { l: 'Upper fence', v: upperFence.toFixed(2) },
+    { l: 'Outliers', v: s.outlier_count || 0 },
+  ].map(i => `<div class="bstat"><strong>${i.l}:</strong> ${i.v}</div>`).join('');
+}
+
+/* ══════════════════════════════
+   SECTION 7: DATA QUALITY
+══════════════════════════════ */
+function renderQuality(columns) {
+  const grid = document.getElementById('quality-grid');
+  const sortedCols = [...columns].sort((a, b) => b.null_pct - a.null_pct);
+  
+  grid.innerHTML = sortedCols.map(col => {
+    const fill  = 100 - col.null_pct;
+    const isPerfect = fill === 100;
+    
+    const color = isPerfect ? 'var(--green)' : fill > 80 ? 'var(--amber)' : 'var(--red)';
+    const icon = isPerfect ? '✨' : fill > 80 ? '⚠️' : '🚨';
+    
+    return `<div class="q-item" role="listitem" style="display:flex; flex-direction:column; gap:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div class="q-name" title="${escHtml(col.name)}" style="margin:0;">${escHtml(col.name)}</div>
+        <div style="font-size:0.9rem; filter: grayscale(${isPerfect ? '0' : '0.2'});" title="${isPerfect ? 'Perfect completeness' : 'Missing values detected'}">${icon}</div>
+      </div>
+      
+      <div class="q-bar-wrap" role="progressbar" aria-valuenow="${fill}" aria-valuemin="0" aria-valuemax="100" aria-label="${escHtml(col.name)} fill rate: ${fill.toFixed(1)}%">
+        <div class="q-bar" style="width:0%;background:${color};transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);" data-fill="${fill}"></div>
+      </div>
+      
+      <div style="display:flex; justify-content:space-between; align-items:center; font-family:var(--mono); font-size:0.75rem; color:var(--muted);">
+        <span style="color:${isPerfect ? 'var(--green)' : 'inherit'}; font-weight:500;">${fill.toFixed(1)}% Completeness</span>
+        <span>${col.null_count > 0 ? `<strong style="color:${color}">${col.null_count.toLocaleString()} missing</strong>` : '0 missing'}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  setTimeout(() => {
+    document.querySelectorAll('.q-bar').forEach(bar => {
+      bar.style.width = bar.getAttribute('data-fill') + '%';
+    });
+  }, 100);
+}
+
+function updateQuickFixButtons(data) {
+  const hasNulls = data.columns.some(c => c.null_count > 0);
+  const hasNumNulls = data.columns.some(c => c.type === 'numeric' && c.null_count > 0);
+  document.getElementById('btn-drop-dupes').style.display = data.duplicate_rows > 0 ? 'inline-flex' : 'none';
+  document.getElementById('btn-fill-mean').style.display   = hasNumNulls ? 'inline-flex' : 'none';
+  document.getElementById('btn-fill-median').style.display = hasNumNulls ? 'inline-flex' : 'none';
+}
+
+/* ── QUICK FIX: Drop Duplicates ── */
+function quickFixDropDuplicates() {
+  if (!cleanedData) return;
+  const before = cleanedData.duplicate_rows;
+  if (before === 0) { toast('No duplicate rows to remove.', 'info'); return; }
+  cleanedData.shape.rows = Math.max(0, cleanedData.shape.rows - before);
+  cleanedData.duplicate_rows = 0;
+  appliedFixes.drop_duplicates = true;
+  document.getElementById('btn-drop-dupes').style.display = 'none';
+  dataModified = true;
+  renderOverview(cleanedData);
+  showExportBanner(`${before} duplicate rows dropped. Dataset now has ${cleanedData.shape.rows.toLocaleString()} rows.`);
+  toast(`Dropped ${before} duplicate rows.`, 'success');
+}
+
+/* ── QUICK FIX: Fill Nulls ── */
+function quickFixFillNulls(method) {
+  if (!cleanedData) return;
+  let filled = 0;
+  cleanedData.columns.forEach(col => {
+    if (col.type === 'numeric' && col.null_count > 0) {
+      filled += col.null_count;
+      col.null_count = 0;
+      col.null_pct   = 0;
+    }
+  });
+  if (filled === 0) { toast('No numeric nulls to fill.', 'info'); return; }
+  appliedFixes.fill_nulls = method;
+  dataModified = true;
+  renderQuality(cleanedData.columns);
+  updateQuickFixButtons(cleanedData);
+  showExportBanner(`${filled} null values filled with ${method}. Export the cleaned dataset below.`);
+  toast(`Filled ${filled} null values using ${method}.`, 'success');
+}
+
+/* ── ML PREP MODAL LOGIC ── */
+function openMlPrep() {
+  if (!edaData) return;
+  const grid = document.getElementById('ml-drop-grid');
+  grid.innerHTML = edaData.columns.map(c => `
+    <label class="checkbox-group" style="margin-bottom:4px">
+      <input type="checkbox" value="${escHtml(c.name)}" class="ml-drop-chk" />
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(c.name)}">${escHtml(c.name)}</span>
+    </label>
+  `).join('');
+  
+  document.getElementById('ml-modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeMlPrep() {
+  document.getElementById('ml-modal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function applyAndExportMlPrep() {
+  const dropCols = Array.from(document.querySelectorAll('.ml-drop-chk:checked')).map(chk => chk.value);
+  const encodeCat = document.getElementById('ml-encode-cat').checked;
+  const scaleNum = document.getElementById('ml-scale-num').checked;
+  
+  appliedFixes.drop_columns = dropCols;
+  appliedFixes.encode_categorical = encodeCat;
+  appliedFixes.scale_numeric = scaleNum;
+  
+  closeMlPrep();
+  exportCleanedCSV();
+}
+
+/* ── EXPORT CLEANED CSV ── */
+function exportCleanedCSV() {
+  if (fileId === 'sample') {
+    const data = cleanedData || edaData;
+    const rows = data.preview_rows;
+    if (!rows || rows.length === 0) { toast('No data loaded.', 'error'); return; }
+    const cols = Object.keys(rows[0]);
+    const csv  = [
+      cols.map(c => `"${String(c).replace(/"/g,'""')}"`).join(','),
+      ...rows.map(row => cols.map(c => {
+        const v = row[c] ?? '';
+        return typeof v === 'string' ? `"${v.replace(/"/g,'""')}"` : v;
+      }).join(','))
+    ].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `sample_cleaned.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    toast('Sample CSV exported!', 'success');
+    return;
+  }
+
+  const data = cleanedData || edaData;
+  if (!data) { toast('No data loaded.', 'error'); return; }
+  if (!data || !fileId) { toast('No data loaded.', 'error'); return; }
+
+  const fname = document.getElementById('db-fname').textContent.replace(/[^a-z0-9._-]/gi,'_');
+  const dlName = `cleaned_${fname}.csv`;
+
+  // Build CSV from preview_rows (full data would need server-side support)
+  const rows = data.preview_rows;
+  if (!rows || rows.length === 0) {
+    toast('Preview data not available for export. Use your server endpoint for full export.', 'warning', 5000);
+    return;
+  }
+  toast('Generating full export on server...', 'info');
+
+  const cols = Object.keys(rows[0]);
+  const csv  = [
+    cols.map(c => `"${String(c).replace(/"/g,'""')}"`).join(','),
+    ...rows.map(row => cols.map(c => {
+      const v = row[c] ?? '';
+      return typeof v === 'string' ? `"${v.replace(/"/g,'""')}"` : v;
+    }).join(','))
+  ].join('\n');
+
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `cleaned_${fname}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  toast('Cleaned CSV exported!', 'success');
+  fetch('/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file_id: fileId, fixes: appliedFixes })
+  })
+  .then(res => {
+    if (!res.ok) throw new Error('Export failed on server. Session may have expired.');
+    return res.blob();
+  })
+  .then(blob => {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = dlName;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    toast('Cleaned CSV exported successfully!', 'success');
+  })
+  .catch(err => {
+    toast(err.message, 'error');
+  });
+}
+
+function showExportBanner(msg) {
+  const banner = document.getElementById('export-banner');
+  document.getElementById('export-banner-msg').innerHTML = `<strong>Dataset modified.</strong> ${escHtml(msg)}`;
+  banner.classList.add('show');
+  banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/* ══════════════════════════════
+   VIS BUILDER MODAL
+══════════════════════════════ */
+function setupVisBuilder(data) {
+  const xSel = document.getElementById('vis-x');
+  const ySel = document.getElementById('vis-y');
+  const y2Sel = document.getElementById('vis-y2');
+  xSel.innerHTML = '';
+  ySel.innerHTML = '';
+  y2Sel.innerHTML = '<option value="">-- None (Single Line) --</option>';
+
+  const all = data.columns;
+  const num = all.filter(c => c.type === 'numeric');
+  const cat = all.filter(c => c.type === 'categorical');
+
+  all.forEach(c => {
+    const opt = `<option value="${escHtml(c.name)}" data-type="${c.type}">${escHtml(c.name)} (${c.type[0].toUpperCase()})</option>`;
+    xSel.innerHTML += opt;
+    ySel.innerHTML += opt;
+    if (c.type === 'numeric') y2Sel.innerHTML += opt;
+  });
+
+  if (cat.length > 0) xSel.value = cat[0].name;
+  if (num.length > 0) ySel.value = num[0].name;
+
+  const sug = document.getElementById('suggestions');
+  sug.innerHTML = '';
+  const tips = [];
+  if (cat.length > 0 && num.length > 0) tips.push({ label:`Bar: ${cat[0].name} vs ${num[0].name}`,    x:cat[0].name, y:num[0].name, type:'bar' });
+  if (num.length >= 2)                   tips.push({ label:`Scatter: ${num[0].name} vs ${num[1].name}`, x:num[0].name, y:num[1].name, type:'scatter' });
+  if (cat.length > 0)                    tips.push({ label:`Pie: ${cat[0].name} distribution`,           x:cat[0].name, y:'', type:'pie' });
+  if (num.length > 0)                    tips.push({ label:`Histogram: ${num[0].name}`,                  x:num[0].name, y:'', type:'histogram' });
+  if (num.length > 0)                    tips.push({ label:`Box Plot: ${num[0].name}`,                   x:num[0].name, y:'', type:'boxplot' });
+
+  tips.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'btn btn-sm';
+    b.style.cssText = 'text-align:left;font-size:0.78rem;padding:8px 12px;justify-content:flex-start;';
+    b.setAttribute('role', 'listitem');
+    b.textContent = '→ ' + t.label;
+    b.onclick = () => {
+      document.getElementById('vis-x').value = t.x;
+      if (t.y) document.getElementById('vis-y').value = t.y;
+      selectChartType(document.querySelector(`.ct-btn[data-chart="${t.type}"]`), t.type);
+      updateVisHelper();
+      renderVisChart();
+    };
+    sug.appendChild(b);
+  });
+  updateVisHelper();
+}
+
+function openVisBuilder() {
+  if (!edaData) return;
+  document.getElementById('vis-modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeVisBuilder() {
+  document.getElementById('vis-modal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function selectChartType(btn, type) {
+  activeChartType = type;
+  document.querySelectorAll('.ct-btn').forEach(b => {
+    b.classList.remove('active');
+    b.setAttribute('aria-pressed', 'false');
+  });
+  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed','true'); }
+
+  const noY = ['pie','doughnut','histogram','boxplot'];
+  document.getElementById('vis-y-group').style.display = noY.includes(type) ? 'none' : 'block';
+  document.getElementById('vis-y2-group').style.display = type === 'line' ? 'block' : 'none';
+
+  const hints = {
+    bar:       '💡 Bar: Compare categories or ranges across a numeric value',
+    line:      '💡 Line: Show trends over time or ordered data',
+    scatter:   '💡 Scatter: Find relationships between two numeric columns',
+    pie:       '💡 Pie: Show proportions of a categorical column',
+    doughnut:  '💡 Donut: Same as pie with a modern ring style',
+    histogram: '💡 Histogram: Distribution of a numeric column',
+    boxplot:   '💡 Box Plot: Visualise spread, IQR, and outliers for a numeric column',
+    radar:     '💡 Radar: Compare multiple variables across a single category (like a spider web)',
+  };
+  document.getElementById('chart-hint').textContent = hints[type] || '';
+  updateVisHelper();
+}
+
+function autoRenderVis() {
+  updateVisHelper();
+  if (document.getElementById('vis-canvas').style.display !== 'none') renderVisChart();
+}
+
+function updateVisHelper() {
+  const type = activeChartType;
+  const xName = document.getElementById('vis-x').value;
+  const yName = document.getElementById('vis-y').value;
+  const xCol = edaData?.columns.find(c => c.name === xName);
+  const yCol = edaData?.columns.find(c => c.name === yName);
+  let helper = 'Select a chart type and choose the most suitable columns.';
+
+  if (!xName) {
+    helper = 'Pick an X Axis / Category column first.';
+  } else if (['pie','doughnut'].includes(type)) {
+    helper = xCol?.type === 'categorical'
+      ? 'Good choice — pie and donut charts work best with categorical data.'
+      : 'Choose a categorical column for pie or donut charts.';
+  } else if (type === 'histogram') {
+    helper = xCol?.type === 'numeric'
+      ? 'Histogram will show the numeric distribution clearly.'
+      : 'Choose a numeric column to view its distribution.';
+  } else if (type === 'boxplot') {
+    helper = xCol?.type === 'numeric'
+      ? 'Box plots highlight spread, quartiles, and outliers nicely.'
+      : 'Choose a numeric column for a box plot.';
+  } else if (type === 'scatter') {
+    if (!yName) helper = 'Pick two numeric columns for scatter plot analysis.';
+    else if (xCol?.type !== 'numeric' || yCol?.type !== 'numeric') helper = 'Scatter requires two numeric columns.';
+    else helper = 'Scatter plots compare two numeric columns and reveal relationships.';
+  } else if (type === 'bar') {
+    if (!yName) helper = 'Pick a numeric Y axis to compare against categories.';
+    else if (xCol?.type === 'categorical' && yCol?.type === 'numeric') helper = 'Ideal: category vs numeric values for bar charts.';
+    else if (xCol?.type === 'numeric' && yCol?.type === 'numeric') helper = 'Numeric bar charts can work, but histogram may be better for distributions.';
+    else helper = 'Bar charts work best with one categorical and one numeric column.';
+  } else if (type === 'line') {
+    if (!yName) helper = 'Pick one numeric Y axis, optionally compare with a second one.';
+    else helper = 'Line charts are great for trends and paired series.';
+  } else if (type === 'radar') {
+    helper = xCol?.type === 'categorical'
+      ? 'Radar charts compare multiple categories across a single metric.'
+      : 'Choose a categorical column for radar visualization.';
+  }
+
+  document.getElementById('vis-compatibility').textContent = helper;
+}
+
+function renderVisChart() {
+  const xName = document.getElementById('vis-x').value;
+  const yName = document.getElementById('vis-y').value;
+  const y2Name = document.getElementById('vis-y2').value;
+  const type  = activeChartType;
+  const showLabels = document.getElementById('vis-show-labels')?.checked || false;
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const labelColor = isDark ? '#e2ddd5' : '#181612';
+
+  if (!edaData || !xName) return;
+
+  const xCol = edaData.columns.find(c => c.name === xName);
+  const yCol = edaData.columns.find(c => c.name === yName);
+
+  document.getElementById('vis-empty').style.display  = 'none';
+  document.getElementById('vis-canvas').style.display = 'block';
+  document.getElementById('vis-chart-actions').style.display = 'flex';
+
+  const ctx = document.getElementById('vis-canvas');
+  visChart && visChart.destroy();
+
+  const baseOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { 
+      legend: { display: true, position: 'top', labels: { font:{family:'Roboto Mono',size:11}, color:'gray', boxWidth:12 } },
+      datalabels: {
+        display: showLabels,
+        align: 'end',
+        anchor: 'end',
+        color: labelColor,
+        font: { family: 'Roboto Mono', size: 10 },
+        formatter: (value) => {
+          if (typeof value === 'number') return Number.isInteger(value) ? value : value.toFixed(2);
+          if (value && typeof value.y === 'number') return Number.isInteger(value.y) ? value.y : value.y.toFixed(2);
+          return value;
+        }
+      }
+    },
+    scales: {
+      x: { ticks:{font:{family:'Roboto Mono',size:11},color:'gray',maxRotation:45}, grid:{color:'rgba(128,128,128,0.15)'} },
+      y: { ticks:{font:{family:'Roboto Mono',size:11},color:'gray'}, grid:{color:'rgba(128,128,128,0.15)'} }
+    }
+  };
+
+  const insights = [];
+
+  // ── HISTOGRAM ──
+  if (type === 'histogram') {
+    if (!xCol?.histogram) { showVisEmpty('No histogram data for this column'); return; }
+    const hd = xCol.histogram;
+    const labels = hd.bin_edges.slice(0,-1).map((v,i) => v.toFixed(1)+'–'+hd.bin_edges[i+1].toFixed(1));
+    visChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ label: `${xName} Frequency`, data:hd.counts, backgroundColor:'rgba(29,78,216,0.25)', borderColor:'#1d4ed8', borderWidth:1.5, borderRadius:4 }] },
+      options: { ...baseOpts }
+    });
+    if (xCol.stats) { insights.push(`Mean: ${xCol.stats.mean}`); insights.push(`Median: ${xCol.stats.median}`); insights.push(`Outliers: ${xCol.stats.outlier_count}`); }
+  }
+
+  // ── BOX PLOT (in vis builder) ──
+  else if (type === 'boxplot') {
+    if (!xCol?.stats) { showVisEmpty('No stats available for this column'); return; }
+    const s = xCol.stats;
+    const min = Number(s.min), max = Number(s.max), median = Number(s.median);
+    const q1  = s.q1 !== undefined ? Number(s.q1) : median - Number(s.std)*0.674;
+    const q3  = s.q3 !== undefined ? Number(s.q3) : median + Number(s.std)*0.674;
+    const iqr = q3 - q1;
+    const lo  = Math.max(min, q1 - 1.5*iqr);
+    const hi  = Math.min(max, q3 + 1.5*iqr);
+
+    visChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: [xName],
+        datasets: [
+          { label:'Whisker lo→Q1', data:[{x:xName,y:q1-lo}], backgroundColor:'rgba(29,78,216,0.12)', borderColor:'#1d4ed8', borderWidth:1, base:lo, barThickness:8 },
+          { label:'IQR Box',       data:[{x:xName,y:q3-q1}], backgroundColor:'rgba(29,78,216,0.28)', borderColor:'#1d4ed8', borderWidth:2, base:q1, barThickness:60 },
+          { label:'Median',        data:[{x:xName,y:0.4}],   backgroundColor:'#1d4ed8', borderColor:'#1d4ed8', borderWidth:0, base:median-0.2, barThickness:60 },
+          { label:'Whisker Q3→hi', data:[{x:xName,y:hi-q3}], backgroundColor:'rgba(29,78,216,0.12)', borderColor:'#1d4ed8', borderWidth:1, base:q3, barThickness:8 },
+        ]
+      },
+      options: {
+        indexAxis:'y', responsive:true, maintainAspectRatio: false,
+        plugins:{ 
+          legend:{display:true,position:'bottom',labels:{font:{family:'Roboto Mono',size:9},color:'#8a857c',boxWidth:10}},
+          datalabels: { display: false }
+        },
+        scales:{
+          x:{ ticks:{font:{family:'Roboto Mono',size:11},color:'gray'}, grid:{color:'rgba(128,128,128,0.15)'} },
+          y:{ ticks:{font:{family:'Roboto Mono',size:11},color:'gray'}, grid:{color:'rgba(128,128,128,0.15)'} }
+        }
+      }
+    });
+    insights.push(`Min: ${min}`); insights.push(`Q1: ${q1.toFixed(2)}`);
+    insights.push(`Median: ${median}`); insights.push(`Q3: ${q3.toFixed(2)}`); insights.push(`Max: ${max}`);
+    insights.push(`Outliers: ${s.outlier_count || 0}`);
+  }
+
+  // ── BAR ──
+  else if (type === 'bar') {
+    if (xCol?.bar_chart) {
+      const bc = xCol.bar_chart;
+      visChart = new Chart(ctx, {
+        type: 'bar',
+        data: { labels:bc.labels, datasets:[{ label: yName || 'Count', data:bc.counts, backgroundColor:VIS_COLORS.map(c=>c+'44'), borderColor:VIS_COLORS, borderWidth:1.5, borderRadius:4 }] },
+        options: { ...baseOpts }
+      });
+      insights.push(`Top: ${bc.labels[0]}`); insights.push(`Count: ${bc.counts[0].toLocaleString()}`);
+    } else if (xCol?.histogram) {
+      const hd = xCol.histogram;
+      const labels = hd.bin_edges.slice(0,-1).map((v,i) => v.toFixed(1)+'–'+hd.bin_edges[i+1].toFixed(1));
+      visChart = new Chart(ctx, {
+        type: 'bar',
+        data: { labels, datasets:[{ label: yName || 'Frequency', data:hd.counts, backgroundColor:'rgba(29,78,216,0.25)', borderColor:'#1d4ed8', borderWidth:1.5, borderRadius:4 }] },
+        options: { ...baseOpts }
+      });
+    } else { showVisEmpty('No bar chart data for this column'); return; }
+  }
+
+  // ── LINE ──
+  else if (type === 'line') {
+    // MULTI-SERIES LINE CHART HANDLING
+    if (y2Name && fileId && fileId !== 'sample') {
+      fetch('/api/multi_line', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_id: fileId, x_col: xName, y1_col: yName, y2_col: y2Name })
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { showVisEmpty(data.error); return; }
+        visChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: data.x,
+            datasets: [
+              { label: yName, data: data.y1, borderColor: '#1d4ed8', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3 },
+              { label: y2Name, data: data.y2, borderColor: '#15803d', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3 }
+            ]
+          },
+          options: {
+            ...baseOpts,
+            plugins: { 
+              ...baseOpts.plugins,
+              legend: { display: true, position: 'top', labels: { font:{family:'Roboto Mono',size:11}, color:'gray', boxWidth:12 } } 
+            }
+          }
+        });
+        insights.push(`Comparing ${yName} & ${y2Name} grouped by ${xName}`);
+        document.getElementById('vis-insights').innerHTML = insights.map(i => `<span class="insight-chip">${escHtml(i)}</span>`).join('');
+      });
+      return; // Exit early while async fetch completes
+    }
+
+    let labels, vals;
+    if (xCol?.histogram) {
+      const hd = xCol.histogram;
+      labels = hd.bin_edges.slice(0,-1).map((v,i) => v.toFixed(1)+'–'+hd.bin_edges[i+1].toFixed(1));
+      vals = hd.counts;
+    } else if (xCol?.bar_chart) {
+      labels = xCol.bar_chart.labels; vals = xCol.bar_chart.counts;
+    } else { showVisEmpty('No line chart data for this column'); return; }
+    visChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets:[{ label: yName || 'Count', data:vals, borderColor:'#1d4ed8', backgroundColor:'rgba(29,78,216,0.07)', borderWidth:2, fill:true, tension:0.35, pointRadius:3 }] },
+      options: { ...baseOpts }
+    });
+  }
+
+  // ── SCATTER ──
+  else if (type === 'scatter') {
+    if (xCol?.type !== 'numeric' || yCol?.type !== 'numeric') { showVisEmpty('Scatter requires two numeric columns.'); return; }
+    const scatter = edaData.scatter;
+    let pts;
+    if (scatter && ((scatter.col_a===xName&&scatter.col_b===yName)||(scatter.col_a===yName&&scatter.col_b===xName))) {
+      pts = scatter.data.map(p => ({ x:p[0], y:p[1] }));
+    } else {
+      const xHist = xCol.histogram, yHist = yCol.histogram;
+      if (xHist && yHist) {
+        pts = [];
+        const n = Math.min(xHist.counts.length, yHist.counts.length);
+        for (let i = 0; i < n; i++) pts.push({ x:xHist.bin_edges[i], y:yHist.bin_edges[i] });
+        insights.push('Approx. scatter from histogram bins');
+      } else { showVisEmpty('Scatter for this pair is not available. Select a pre-computed pair.'); return; }
+    }
+    const corr = edaData.correlations?.find(c =>
+      (c.col_a===xName&&c.col_b===yName)||(c.col_a===yName&&c.col_b===xName));
+    visChart = new Chart(ctx, {
+      type: 'scatter',
+      data: { datasets:[{ label: `${xName} vs ${yName}`, data:pts, backgroundColor:'rgba(29,78,216,0.3)', borderColor:'rgba(29,78,216,0.65)', pointRadius:4, pointHoverRadius:6 }] },
+      options: {
+        responsive:true, maintainAspectRatio: false,
+        plugins:{
+          legend:{display:true}, 
+          tooltip:{callbacks:{label:c=>`(${c.parsed.x}, ${c.parsed.y})`}},
+          datalabels: { display: false }
+        },
+        scales:{
+          x:{...baseOpts.scales.x, title:{display:true,text:xName,color:'gray',font:{family:'Roboto Mono',size:11}}},
+          y:{...baseOpts.scales.y, title:{display:true,text:yName,color:'gray',font:{family:'Roboto Mono',size:11}}}
+        }
+      }
+    });
+    if (corr) insights.push(`Pearson r: ${corr.r > 0 ? '+' : ''}${corr.r}`);
+    insights.push(`${pts.length} data points`);
+  }
+
+  // ── PIE / DOUGHNUT ──
+  else if (type === 'pie' || type === 'doughnut') {
+    if (!xCol?.bar_chart) { showVisEmpty('Pie/Donut requires a categorical column'); return; }
+    const bc = xCol.bar_chart;
+    const total = bc.counts.reduce((a,b) => a+b, 0);
+    visChart = new Chart(ctx, {
+      type: type,
+      data: { labels:bc.labels, datasets:[{ data:bc.counts, backgroundColor:VIS_COLORS.slice(0,bc.labels.length).map(c=>c+'cc'), borderColor:VIS_COLORS.slice(0,bc.labels.length), borderWidth:2, hoverOffset:8 }] },
+      options: {
+        responsive:true, maintainAspectRatio: false, cutout:type==='doughnut'?'55%':0,
+        plugins:{
+          legend:{display:true,position:'right',labels:{font:{family:'Roboto Mono',size:11},color:'gray',boxWidth:12}},
+          tooltip:{callbacks:{label:c=>{const pct=((c.parsed/total)*100).toFixed(1);return ` ${c.label}: ${c.parsed.toLocaleString()} (${pct}%)`;} }},
+          datalabels: {
+            display: showLabels,
+            color: '#fff',
+            font: { family: 'Roboto Mono', size: 11, weight: 'bold' },
+            formatter: (value) => {
+              const pct = ((value/total)*100).toFixed(1);
+              return pct > 3 ? pct + '%' : '';
+            }
+          }
+        }
+      }
+    });
+    insights.push(`Total: ${total.toLocaleString()}`);
+    insights.push(`Top: ${bc.labels[0]} (${((bc.counts[0]/total)*100).toFixed(1)}%)`);
+    insights.push(`Categories: ${bc.labels.length}`);
+  }
+
+  // ── RADAR ──
+  else if (type === 'radar') {
+    if (!xCol?.bar_chart) { showVisEmpty('Radar requires a categorical column'); return; }
+    const bc = xCol.bar_chart;
+    
+    visChart = new Chart(ctx, {
+      type: 'radar',
+      data: { 
+        labels: bc.labels, 
+        datasets: [{ 
+          label: xName + ' Count', 
+          data: bc.counts, 
+          backgroundColor: 'rgba(29, 78, 216, 0.2)', 
+          borderColor: '#1d4ed8', 
+          pointBackgroundColor: '#1d4ed8' 
+        }] 
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, position: 'top' },
+          datalabels: { display: showLabels, color: labelColor, font: { family: 'Roboto Mono', size: 10 } }
+        },
+        scales: { r: { ticks: { font: { family: 'Roboto Mono', size: 10 } }, angleLines: { color: 'rgba(128,128,128,0.2)' } }, x: { display: false }, y: { display: false } }
+      }
+    });
+  }
+
+  document.getElementById('vis-insights').innerHTML =
+    insights.map(i => `<span class="insight-chip" role="listitem">${escHtml(i)}</span>`).join('');
+}
+
+function showVisEmpty(msg) {
+  document.getElementById('vis-canvas').style.display  = 'none';
+  document.getElementById('vis-chart-actions').style.display = 'none';
+  const el = document.getElementById('vis-empty');
+  el.style.display = 'block';
+  el.innerHTML = `<span class="vis-empty-icon" aria-hidden="true">⚠️</span>${escHtml(msg)}`;
+  document.getElementById('vis-insights').innerHTML = '';
+}
+
+function downloadChart() {
+  if (!visChart) return;
+  const link = document.createElement('a');
+  link.download = 'datalens-chart.png';
+  link.href = document.getElementById('vis-canvas').toDataURL('image/png');
+  link.click();
+  toast('Chart downloaded as PNG', 'success', 2000);
+}
+
+document.getElementById('vis-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeVisBuilder();
+});
+
+/* ══════════════════════════════
+   REPORT GENERATOR
+══════════════════════════════ */
+function openReport() {
+  if (!edaData) return;
+  document.getElementById('report-modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  generateReport();
+}
+
+function closeReport() {
+  document.getElementById('report-modal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function generateReport() {
+  const data = edaData;
+  const fname = document.getElementById('db-fname').textContent;
+  document.getElementById('report-subtitle').textContent = fname;
+
+  const numCols    = data.columns.filter(c => c.type === 'numeric');
+  const catCols    = data.columns.filter(c => c.type === 'categorical');
+  const nullCols   = data.columns.filter(c => c.null_count > 0);
+  const totalNulls = data.columns.reduce((s,c) => s + c.null_count, 0);
+  const totalOutliers = numCols.reduce((s,c) => s + (c.stats?.outlier_count||0), 0);
+  const topCorr = data.correlations ? [...data.correlations].sort((a,b) => Math.abs(b.r)-Math.abs(a.r))[0] : null;
+
+  const content = document.getElementById('report-content');
+  content.innerHTML = `
+    <h3>📋 Summary</h3>
+    <p>Dataset <strong>${escHtml(fname)}</strong> contains <strong>${data.shape.rows.toLocaleString()} rows</strong> and <strong>${data.shape.cols} columns</strong>
+    (${numCols.length} numeric, ${catCols.length} categorical).
+    ${data.duplicate_rows > 0 ? `<strong style="color:var(--amber)">${data.duplicate_rows} duplicate rows</strong> were detected.` : 'No duplicate rows found.'}</p>
+
+    <div class="report-kv">
+      <div class="report-kv-item"><div class="report-kv-val">${data.shape.rows.toLocaleString()}</div><div class="report-kv-lbl">Total Rows</div></div>
+      <div class="report-kv-item"><div class="report-kv-val">${data.shape.cols}</div><div class="report-kv-lbl">Columns</div></div>
+      <div class="report-kv-item"><div class="report-kv-val">${data.duplicate_rows}</div><div class="report-kv-lbl">Duplicates</div></div>
+      <div class="report-kv-item"><div class="report-kv-val">${totalNulls.toLocaleString()}</div><div class="report-kv-lbl">Total Nulls</div></div>
+      <div class="report-kv-item"><div class="report-kv-val">${nullCols.length}</div><div class="report-kv-lbl">Cols w/ Nulls</div></div>
+      <div class="report-kv-item"><div class="report-kv-val">${totalOutliers}</div><div class="report-kv-lbl">Outliers (IQR)</div></div>
+    </div>
+
+    <h3>🔢 Numeric Columns</h3>
+    ${numCols.length === 0 ? '<p>No numeric columns found.</p>' :
+      numCols.map(c => `<p><strong>${escHtml(c.name)}</strong> — Mean: ${c.stats?.mean}, Median: ${c.stats?.median}, Std Dev: ${c.stats?.std}, Outliers: ${c.stats?.outlier_count}, Null%: ${c.null_pct}%</p>`).join('')}
+
+    <h3>📝 Categorical Columns</h3>
+    ${catCols.length === 0 ? '<p>No categorical columns found.</p>' :
+      catCols.map(c => {
+        const top = c.bar_chart ? `Top value: <strong>${escHtml(c.bar_chart.labels[0])}</strong> (${c.bar_chart.counts[0].toLocaleString()})` : '';
+        return `<p><strong>${escHtml(c.name)}</strong> — ${c.unique_count} unique values. ${top}. Null%: ${c.null_pct}%</p>`;
+      }).join('')}
+
+    ${topCorr ? `
+    <h3>📊 Top Correlation</h3>
+    <p>Strongest pair: <strong>${escHtml(topCorr.col_a)}</strong> and <strong>${escHtml(topCorr.col_b)}</strong>
+    with Pearson r = <strong>${Number(topCorr.r).toFixed(3)}</strong>
+    (${Math.abs(topCorr.r) >= 0.7 ? 'strong' : Math.abs(topCorr.r) >= 0.4 ? 'moderate' : 'weak'}
+    ${topCorr.r > 0 ? 'positive' : 'negative'} correlation).</p>` : ''}
+
+    <h3>⚠️ Data Quality Notes</h3>
+    ${nullCols.length === 0
+      ? '<p style="color:var(--green)">✅ No missing values detected across all columns.</p>'
+      : `<p>${nullCols.map(c => `<strong>${escHtml(c.name)}</strong> (${c.null_pct}% missing)`).join(', ')} have missing values. Consider imputation or removal before modeling.</p>`}
+    ${data.duplicate_rows > 0 ? `<p><strong>${data.duplicate_rows} duplicate rows</strong> found. Deduplicate before analysis.</p>` : ''}
+    ${totalOutliers > 0 ? `<p><strong>${totalOutliers} outliers</strong> detected via IQR across ${numCols.filter(c=>c.stats?.outlier_count>0).length} columns. Review before statistical modeling.</p>` : ''}
+
+    <p style="margin-top:20px;font-size:0.75rem;color:var(--muted);border-top:1px solid var(--border);padding-top:12px">
+      Generated by DataLens EDA Studio · ${new Date().toLocaleDateString('en-IN', {year:'numeric',month:'long',day:'numeric'})}
+    </p>`;
+}
+
+function downloadReport() {
+  const fname   = document.getElementById('db-fname').textContent.replace(/[^a-z0-9]/gi,'_');
+  const content = document.getElementById('report-content').innerHTML;
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>EDA Report — ${escHtml(fname)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Roboto:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    body{font-family:'Roboto',sans-serif;max-width:900px;margin:40px auto;padding:0 20px;color:#181612;background:#f5f4f0;font-weight:300}
+    h1{font-family:'Playfair Display',serif;font-size:2rem;margin-bottom:8px}
+    h3{font-family:'Playfair Display',serif;font-size:1.1rem;margin:24px 0 10px}
+    p{line-height:1.8;margin-bottom:10px;color:#44403a}
+    .report-kv{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
+    .report-kv-item{background:#fff;border:1px solid #e2ddd6;border-radius:8px;padding:12px}
+    .report-kv-val{font-family:'Playfair Display',serif;font-size:1.3rem;font-weight:600}
+    .report-kv-lbl{font-size:0.65rem;color:#8a857c;text-transform:uppercase;letter-spacing:1px}
+  </style></head><body>
+  <h1>EDA Report</h1>
+  <p style="color:#8a857c;font-size:0.85rem">${escHtml(fname)}</p>
+  ${content}
+  </body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `EDA_Report_${fname}.html`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  toast('Report downloaded!', 'success');
+}
+
+document.getElementById('report-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeReport();
+});
+</script>
+</body>
+</html>
