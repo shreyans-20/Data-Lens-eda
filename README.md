@@ -2,7 +2,7 @@
 
 > Upload a CSV or Excel file. Get a full analysis dashboard in seconds.
 
-🔗 **Live Demo:** [[shreyans-20.github.io/datalens-eda](https://data-lens-eda-jt7u.onrender.com)]
+🔗 **Live Demo:** https://data-lens-eda-jt7u.onrender.com
 
 ---
 
