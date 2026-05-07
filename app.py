@@ -3,15 +3,13 @@ try:
     from flask_cors import CORS
 except ImportError:
     CORS = None
-import pandas as pd
 import traceback
 import os
 import io
 import uuid
-import numpy as np
-from eda_engine import run_eda
+import gc
 
-app = Flask(__name__, template_folder='.')
+app = Flask(__name__)
 if CORS:
     CORS(app)
 else:
@@ -41,15 +39,25 @@ def allowed_file(filename):
 
 
 def auto_join_sheets(sheets_dict):
-    """Automatically join dimension tables to the main fact table."""
+    """Automatically join dimension tables to the main fact table. Returns (merged_df, table_metadata)."""
+    import pandas as pd
     if not sheets_dict:
-        return pd.DataFrame()
+        return pd.DataFrame(), {}
     if len(sheets_dict) == 1:
-        return list(sheets_dict.values())[0]
+        sheet_name = list(sheets_dict.keys())[0]
+        df = list(sheets_dict.values())[0]
+        metadata = {
+            "fact_table": sheet_name,
+            "dimension_tables": [],
+            "column_origins": {col: sheet_name for col in df.columns}
+        }
+        return df, metadata
 
     # Identify the main table (fact table) by the highest number of rows
     main_sheet_name = max(sheets_dict.keys(), key=lambda k: len(sheets_dict[k]))
     main_df = sheets_dict[main_sheet_name].copy()
+    column_origins = {col: main_sheet_name for col in main_df.columns}
+    dimension_tables = []
 
     # Iterate over the rest of the sheets (potential dimension tables)
     for sheet_name, dim_df in sheets_dict.items():
@@ -61,36 +69,57 @@ def auto_join_sheets(sheets_dict):
 
         if common_cols:
             # To be safe, only auto-join if the dimension table's join keys are unique
-            # (i.e., it is a true dimension/lookup table)
             if not dim_df.duplicated(subset=common_cols).any():
-                # Perform a left join to bring dimension attributes into the fact table
+                # Track new columns from dimension table
+                new_cols = set(dim_df.columns) - set(main_df.columns)
+                for col in new_cols:
+                    column_origins[col] = sheet_name
+                
+                dimension_tables.append({
+                    "name": sheet_name,
+                    "join_keys": common_cols,
+                    "columns": list(dim_df.columns)
+                })
+                
+                # Perform a left join
                 main_df = main_df.merge(dim_df, on=common_cols, how="left", suffixes=("", f"_{sheet_name}"))
 
-    return main_df
+    metadata = {
+        "fact_table": main_sheet_name,
+        "dimension_tables": dimension_tables,
+        "column_origins": column_origins
+    }
+    return main_df, metadata
 
 
 def read_file(file):
-    """Read uploaded file into a DataFrame."""
+    """Read uploaded file into a DataFrame and extract table metadata."""
+    import pandas as pd
     filename = getattr(file, "filename", "")
     if not filename:
         raise ValueError("Empty filename")
 
     ext = os.path.splitext(filename)[1].lower()
+    metadata = {}
 
     if ext == ".csv":
-        return pd.read_csv(file)
+        return pd.read_csv(file), metadata
     elif ext == ".xlsx":
         sheets = pd.read_excel(file, sheet_name=None, engine="openpyxl")
-        return auto_join_sheets(sheets)
+        df, metadata = auto_join_sheets(sheets)
+        return df, metadata
     elif ext == ".xls":
         sheets = pd.read_excel(file, sheet_name=None)
-        return auto_join_sheets(sheets)
+        df, metadata = auto_join_sheets(sheets)
+        return df, metadata
     else:
         raise ValueError("Unsupported file type.")
 
 
 def convert_types(obj):
     """Convert NumPy/Pandas types to native Python types for JSON."""
+    import pandas as pd
+    import numpy as np
     if isinstance(obj, dict):
         return {k: convert_types(v) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
@@ -113,7 +142,22 @@ def convert_types(obj):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    try:
+        # Read the three files from the root directory
+        with open(os.path.join(base_dir, "index.html"), "r", encoding="utf-8") as f:
+            html = f.read()
+        with open(os.path.join(base_dir, "style.css"), "r", encoding="utf-8") as f:
+            css = f.read()
+        with open(os.path.join(base_dir, "app.js"), "r", encoding="utf-8") as f:
+            js = f.read()
+
+        # Replace the Jinja2 tags with the actual file contents
+        html = html.replace('<link rel="stylesheet" href="{{ url_for(\'static\', filename=\'style.css\') }}">', f'<style>{css}</style>')
+        html = html.replace('<script src="{{ url_for(\'static\', filename=\'app.js\') }}"></script>', f'<script>{js}</script>')
+        return html
+    except Exception as e:
+        return f"Frontend file error: Make sure index.html, style.css, and app.js are in {base_dir}. Details: {str(e)}", 500
 
 
 @app.route("/health", methods=["GET"])
@@ -127,6 +171,7 @@ def health():
 @app.route("/upload", methods=["POST"])
 def upload():
     try:
+        from eda_engine import run_eda
         # Check file presence
         if "file" not in request.files:
             return jsonify({
@@ -151,7 +196,7 @@ def upload():
             }), 400
 
         # Read file
-        df = read_file(file)
+        df, table_metadata = read_file(file)
 
         # Check empty
         if df.empty:
@@ -166,10 +211,11 @@ def upload():
         # Save DataFrame to session store for later exports
         file_id = str(uuid.uuid4())
         
-        # Prevent memory leaks by capping the store at the 20 most recent uploads
-        if len(data_store) >= 20:
+        # Prevent memory leaks by capping the store at the 3 most recent uploads to protect RAM
+        if len(data_store) >= 3:
             oldest_key = next(iter(data_store))
             del data_store[oldest_key]
+            gc.collect()
             
         data_store[file_id] = df.copy()
 
@@ -182,6 +228,7 @@ def upload():
         response = {
             "success": True,
             "file_id": file_id,
+            "table_metadata": table_metadata,
 
             # REQUIRED BY YOUR FRONTEND
             "shape": {
@@ -212,6 +259,8 @@ def upload():
 @app.route("/export", methods=["POST"])
 def export_data():
     try:
+        import pandas as pd
+        import numpy as np
         req_data = request.get_json(silent=True) or {}
         file_id = req_data.get("file_id")
         fixes = req_data.get("fixes", {})
@@ -259,8 +308,7 @@ def export_data():
 
         # Convert to CSV in memory
         output = io.BytesIO()
-        csv_data = df.to_csv(index=False)
-        output.write(csv_data.encode('utf-8'))
+        df.to_csv(output, index=False, encoding='utf-8')
         output.seek(0)
 
         return send_file(
@@ -302,6 +350,76 @@ def multi_line():
             "y2": grouped[y2_col].tolist()
         })
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/chart_data", methods=["POST"])
+def chart_data():
+    try:
+        import pandas as pd
+        import numpy as np
+        req = request.get_json(silent=True) or {}
+        file_id = req.get("file_id")
+        x_col = req.get("x_col")
+        y_col = req.get("y_col")
+        group_col = req.get("group_col")
+        agg_func = req.get("agg", "sum")
+        chart_type = req.get("type")
+
+        if not file_id or file_id not in data_store:
+            return jsonify({"error": "File session expired. Please re-upload."}), 400
+
+        df = data_store[file_id]
+
+        if not x_col or x_col not in df.columns:
+            return jsonify({"error": "Invalid or missing X column."}), 400
+
+        # Specialized logic for Histogram
+        if chart_type == "histogram":
+            if pd.api.types.is_numeric_dtype(df[x_col]):
+                counts, bins = np.histogram(df[x_col].dropna(), bins=15)
+                return jsonify({
+                    "x": [f"{round(bins[i],1)}-{round(bins[i+1],1)}" for i in range(len(counts))],
+                    "y": counts.tolist()
+                })
+
+        # If only X is provided, return value counts
+        if not y_col:
+            counts = df[x_col].value_counts(dropna=False).head(100)
+            return jsonify({
+                "x": counts.index.astype(str).tolist(),
+                "y": counts.values.tolist()
+            })
+
+        if y_col not in df.columns:
+            return jsonify({"error": "Invalid Y column."}), 400
+            
+        # For Pareto: sort descending by values
+        if chart_type == "pareto":
+             grouped = df.groupby(x_col, dropna=False)[y_col].agg(agg_func).reset_index()
+             grouped = grouped.sort_values(by=y_col, ascending=False).head(20)
+             return jsonify({ "x": grouped[x_col].astype(str).tolist(), "y": grouped[y_col].tolist() })
+
+        
+        if not pd.api.types.is_numeric_dtype(df[y_col]):
+            agg_func = "count" 
+
+        if group_col and group_col in df.columns:
+            grouped = df.groupby([x_col, group_col], dropna=False)[y_col].agg(agg_func).reset_index()
+            pivot = grouped.pivot(index=x_col, columns=group_col, values=y_col).fillna(0).head(100)
+            return jsonify({
+                "x": pivot.index.astype(str).tolist(),
+                "series": {str(c): pivot[c].tolist() for c in pivot.columns}
+            })
+        else:
+            grouped = df.groupby(x_col, dropna=False)[y_col].agg(agg_func).reset_index().head(100)
+            return jsonify({
+                "x": grouped[x_col].astype(str).tolist(),
+                "y": grouped[y_col].tolist()
+            })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 # -------------------------------
