@@ -1,9 +1,8 @@
-import pandas as pd
-import numpy as np
 from typing import List, Dict, Any
 
-def classify_column(series: pd.Series) -> str:
+def classify_column(series) -> str:
     """Classify a column as numeric, categorical, or datetime."""
+    import pandas as pd
     # Numeric
     if pd.api.types.is_numeric_dtype(series):
         return "numeric"
@@ -13,7 +12,7 @@ def classify_column(series: pd.Series) -> str:
         return "datetime"
 
     if series.dtype == "object":
-        sample = series.dropna().head(30)
+        sample = series.dropna().head(100)
         try:
             parsed = pd.to_datetime(sample, errors="coerce")
             if parsed.notna().mean() >= 0.9:
@@ -23,18 +22,19 @@ def classify_column(series: pd.Series) -> str:
 
     return "categorical"
 
-def get_outlier_count(series: pd.Series) -> int:
+def get_outlier_count(series) -> int:
     """Count outliers using IQR method."""
+    import pandas as pd
     if series.empty:
         return 0
     q1 = series.quantile(0.25)
     q3 = series.quantile(0.75)
     iqr = q3 - q1
-    lower = q1 - 1.5 * iqr
-    upper = q3 + 1.5 * iqr
-    return int(((series < lower) | (series > upper)).sum())
+    return int(((series < (q1 - 1.5 * iqr)) | (series > (q3 + 1.5 * iqr))).sum())
 
-def run_eda(df: pd.DataFrame) -> Dict[str, Any]:
+def run_eda(df) -> Dict[str, Any]:
+    import pandas as pd
+    import numpy as np
     # Guard against None or empty input
     if df is None:
         df = pd.DataFrame()
@@ -163,7 +163,13 @@ def run_eda(df: pd.DataFrame) -> Dict[str, Any]:
     numeric_cols = [c["name"] for c in column_profiles if c["type"] == "numeric"]
     correlations: List[Dict[str, Any]] = []
     if len(numeric_cols) >= 2:
-        corr_matrix = df[numeric_cols].corr()
+        # Sample for correlation to ensure blazing fast execution on large datasets
+        if len(df) > 50000:
+            corr_df = df[numeric_cols].sample(n=50000, random_state=42)
+        else:
+            corr_df = df[numeric_cols]
+            
+        corr_matrix = corr_df.corr()
         pairs: List[tuple[str, str, float]] = []
         for i in range(len(numeric_cols)):
             for j in range(i + 1, len(numeric_cols)):
