@@ -35,13 +35,19 @@ def get_outlier_count(series) -> int:
 def run_eda(df) -> Dict[str, Any]:
     import pandas as pd
     import numpy as np
+    import math
     # Guard against None or empty input
     if df is None:
         df = pd.DataFrame()
 
-    # Cap rows for performance (Increased to 500,000 rows / 5 Lakh)
+    # Cap rows for Vercel performance (Vercel has memory limits)
     if len(df) > 500000:
         df = df.sample(n=500000, random_state=42)
+
+    # Memory Optimization: Convert object columns to categories where appropriate
+    for col in df.select_dtypes(include=['object']).columns:
+        if df[col].nunique() / len(df) < 0.5: 
+            df[col] = df[col].astype('category')
 
     total_rows, total_cols = df.shape
 
@@ -51,6 +57,7 @@ def run_eda(df) -> Dict[str, Any]:
             "shape": {"rows": total_rows, "cols": total_cols},
             "duplicate_rows": 0,
             "columns": [],
+            "health_score": 0,
             "datetime_columns": [],
             "correlations": [],
             "scatter": {"col_a": None, "col_b": None, "data": []},
@@ -96,8 +103,8 @@ def run_eda(df) -> Dict[str, Any]:
                 "outlier_count": get_outlier_count(clean),
             }
 
-            profile["series"] = list(clean.tolist())
-
+            # REMOVED: profile["series"] - This prevents huge JSON payloads that lag the browser
+            
             # Histogram
             counts, bin_edges = np.histogram(clean, bins=20)
             profile["histogram"] = {
@@ -191,10 +198,17 @@ def run_eda(df) -> Dict[str, Any]:
         scatter_col_b = top["col_b"]
         scatter_df = df[[scatter_col_a, scatter_col_b]].dropna().head(500)
         scatter_data = scatter_df.values.tolist()
+        
+    # Calculate Overall Health Score (0-100)
+    null_impact = (df.isnull().sum().sum() / (total_rows * total_cols)) * 100 if total_rows > 0 else 0
+    dup_impact = (duplicate_rows / total_rows) * 100 if total_rows > 0 else 0
+    health_score = max(0, min(100, 100 - (null_impact * 1.5) - (dup_impact * 2)))
+    if math.isnan(health_score): health_score = 0
 
     return {
         "shape": {"rows": total_rows, "cols": total_cols},
         "duplicate_rows": duplicate_rows,
+        "health_score": round(health_score, 1),
         "columns": column_profiles,
         "datetime_columns": datetime_columns,
         "correlations": correlations,
