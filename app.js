@@ -14,6 +14,7 @@ let columnSortKey   = 'name';
 let pbiShowLabels   = false;
 let columnSortAsc   = true;
 let allColumns      = [];
+let columnDisplayLimit = 50; 
 let activeBoxplotCol = null;
 let dataModified    = false;
 let fileId          = null;
@@ -315,15 +316,15 @@ function renderOverview(data) {
   const catC  = data.columns.filter(c => c.type === 'categorical').length;
   const nullC = data.columns.filter(c => c.null_count > 0).length;
   const dups  = data.duplicate_rows;
-  const totalNulls = data.columns.reduce((s,c) => s + c.null_count, 0);
+  const score = data.health_score || 0;
 
   const items = [
     { val: data.shape.rows.toLocaleString(), lbl: 'Rows',           cls: '' },
     { val: data.shape.cols,                  lbl: 'Columns',        cls: '' },
+    { val: score + '%',                      lbl: 'Health Score',   cls: score > 80 ? 'success' : (score > 50 ? 'warn' : 'error') },
     { val: numC,                             lbl: 'Numeric Cols',   cls: '' },
     { val: catC,                             lbl: 'Categorical',    cls: '' },
     { val: dups,                             lbl: 'Duplicates',     cls: dups > 0 ? 'warn' : '' },
-    { val: nullC,                            lbl: 'Cols w/ Nulls',  cls: nullC > 0 ? 'warn' : '' },
   ];
 
   document.getElementById('overview-grid').innerHTML = items.map(i =>
@@ -358,10 +359,15 @@ function renderPreview(data) {
    SECTION 3a: COLUMN TABLE
 ══════════════════════════════ */
 function renderColumnTable(columns) {
-  document.getElementById('col-tbody').innerHTML = columns.map(col => {
+  const container = document.getElementById('col-tbody');
+  container.innerHTML = '';
+  
+  const renderBatch = (start) => {
+    const displaySet = columns.slice(start, start + 50);
+    const html = displaySet.map(col => {
     const s   = col.stats || {};
     const bc  = col.type === 'numeric' ? 'type-num' : col.type === 'categorical' ? 'type-cat' : 'type-dt';
-    const mode = col.bar_chart ? escHtml(col.bar_chart.labels[0]) : '—';
+    const mode = col.mode !== undefined && col.mode !== null ? escHtml(String(col.mode)) : '—';
     const isActive = col.name === activeCol ? 'active-row' : '';
     return `<tr class="${isActive}" data-col="${escHtml(col.name)}" onclick="selectColFromTable(this)" role="row" tabindex="0" aria-label="Column: ${escHtml(col.name)}">
       <td>${escHtml(col.name)}</td>
@@ -373,6 +379,16 @@ function renderColumnTable(columns) {
       <td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${mode}</td>
     </tr>`;
   }).join('');
+    
+    container.insertAdjacentHTML('beforeend', html);
+    
+    if (start + 50 < Math.min(columns.length, columnDisplayLimit)) {
+      requestAnimationFrame(() => renderBatch(start + 50));
+    } else if (columns.length > columnDisplayLimit) {
+      container.insertAdjacentHTML('beforeend', `<tr><td colspan="7" style="text-align:center; padding:15px; color:var(--muted); font-size:0.8rem; background:var(--bg-l);">Showing first ${columnDisplayLimit} columns. Use Search to filter.</td></tr>`);
+    }
+  };
+  renderBatch(0);
 }
 
 function selectColFromTable(row) { selectCol(row.getAttribute('data-col')); }
@@ -443,14 +459,22 @@ function renderNumericStats(col) {
     modeVal = hd.bin_edges[maxIdx] !== undefined ? Number(hd.bin_edges[maxIdx]).toFixed(2) : '—';
   }
 
+  // Calculate range and IQR for better context
+  const range = (s.max !== undefined && s.min !== undefined) ? (parseFloat(s.max) - parseFloat(s.min)).toFixed(2) : '—';
+  const iqr = (col.boxplot && col.boxplot.q3 && col.boxplot.q1) ? (col.boxplot.q3 - col.boxplot.q1).toFixed(2) : '—';
+
   const statItems = [
     {v:s.mean,l:'Mean'},{v:s.median,l:'Median'},{v:modeVal,l:'Mode'},
     {v:s.std,l:'Std Dev'},{v:s.min,l:'Min'},{v:s.max,l:'Max'},
-    {v:s.skew,l:'Skewness'},{v:s.kurtosis,l:'Kurtosis'},{v:s.outlier_count,l:'Outliers'},
+    {v:range,l:'Range'},{v:iqr,l:'IQR'},{v:s.outlier_count,l:'Outliers'},
   ];
 
   content.innerHTML = `
-    <div class="stat-grid">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+      <h4 style="margin:0; font-size:0.9rem; color:var(--ink-full);">Statistical Distribution</h4>
+      <button class="btn btn-sm" onclick="navigator.clipboard.writeText('${JSON.stringify(s)}')">Copy Stats</button>
+    </div>
+    <div class="stat-grid" style="grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));">
       ${statItems.map(i => `
         <div class="stat-item">
           <div class="stat-val">${i.v !== undefined && i.v !== null ? escHtml(String(i.v)) : '—'}</div>
@@ -775,18 +799,23 @@ function renderBoxplot(col) {
 function renderQuality(columns) {
   const grid = document.getElementById('quality-grid');
   const sortedCols = [...columns].sort((a, b) => b.null_pct - a.null_pct);
+  const totalNulls = columns.reduce((s, c) => s + c.null_count, 0);
   
   grid.innerHTML = sortedCols.map(col => {
     const fill  = 100 - col.null_pct;
     const isPerfect = fill === 100;
     
     const color = isPerfect ? 'var(--green)' : fill > 80 ? 'var(--amber)' : 'var(--red)';
-    const icon = isPerfect ? '✨' : fill > 80 ? '⚠️' : '🚨';
+    
+    // Actionable Insights
+    let insight = isPerfect ? "Data is clean" : 
+                  col.null_pct > 40 ? "Critical: High Sparsity" : 
+                  "Action: Imputation suggested";
     
     return `<div class="q-item" role="listitem" style="display:flex; flex-direction:column; gap:10px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <div class="q-name" title="${escHtml(col.name)}" style="margin:0;">${escHtml(col.name)}</div>
-        <div style="font-size:0.9rem; filter: grayscale(${isPerfect ? '0' : '0.2'});" title="${isPerfect ? 'Perfect completeness' : 'Missing values detected'}">${icon}</div>
+        <div style="font-size:0.7rem; color:var(--muted);">${insight}</div>
       </div>
       
       <div class="q-bar-wrap" role="progressbar" aria-valuenow="${fill}" aria-valuemin="0" aria-valuemax="100" aria-label="${escHtml(col.name)} fill rate: ${fill.toFixed(1)}%">
@@ -1024,6 +1053,17 @@ function openVisBuilder() {
                            <select class="pbi-select" data-zone="group" style="width:100%; padding:6px; border:1px solid var(--border); border-radius:4px; background: var(--bg); color: var(--ink-full); font-size: 0.8rem;"></select>
                            <div class="pbi-drop" data-zone="group" style="display:none;">Drop Field Here</div>
                        </div>
+                       <div class="pbi-zone">
+                           <div class="pbi-zone-label" style="font-size:0.8rem; margin-bottom:4px; font-weight:bold; color:var(--ink-full, #333);">Aggregation (Optional Measure)</div>
+                           <select id="pbi-agg-func" style="width:100%; padding:6px; border:1px solid var(--border); border-radius:4px; background: var(--bg); color: var(--ink-full); font-size: 0.8rem;">
+                               <option value="none">None (Raw Data Points)</option>
+                               <option value="sum">Sum</option>
+                               <option value="mean">Average</option>
+                               <option value="count">Count</option>
+                               <option value="min">Min</option>
+                               <option value="max">Max</option>
+                           </select>
+                       </div>
                    </div>
                </div>
            </div>
@@ -1190,6 +1230,7 @@ function renderPBIChart() {
     const xCol = document.querySelector('.pbi-select[data-zone="x"]').value;
     const yCol = document.querySelector('.pbi-select[data-zone="y"]').value;
     const groupCol = document.querySelector('.pbi-select[data-zone="group"]').value;
+    const aggFunc = document.getElementById('pbi-agg-func').value;
     
     if (!xCol && activePBIChartType !== 'table' && activePBIChartType !== 'matrix') {
         showPBIEmpty('Please drop a field into the X-axis / Category zone.');
@@ -1209,7 +1250,7 @@ function renderPBIChart() {
     fetch('/api/chart_data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_id: fileId, x_col: xCol, y_col: yCol, group_col: groupCol, agg: 'sum', type: activePBIChartType })
+        body: JSON.stringify({ file_id: fileId, x_col: xCol, y_col: yCol, group_col: groupCol, agg: aggFunc, type: activePBIChartType })
     })
     .then(r => r.json())
     .then(data => {
