@@ -1,15 +1,30 @@
+import os
+import io
+import uuid
+import gc
+import traceback
+import pandas as pd
+import numpy as np
+import logging
+from threading import Lock
 from flask import Flask, request, jsonify, render_template, send_file
 try:
     from flask_cors import CORS
 except ImportError:
     CORS = None
-import traceback
-import os
-import io
-import uuid
-import gc
+from eda_engine import run_eda
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-placeholder')
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+
 if CORS:
     CORS(app)
 else:
@@ -20,13 +35,10 @@ else:
         response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
         return response
 
-# Optional: limit upload size (uncomment if needed)
-# app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB
-
 ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 
-# Global store to hold DataFrames temporarily for export processing
 data_store = {}
+data_store_lock = Lock()
 
 
 # -------------------------------
@@ -40,7 +52,6 @@ def allowed_file(filename):
 
 def auto_join_sheets(sheets_dict):
     """Automatically join dimension tables to the main fact table. Returns (merged_df, table_metadata)."""
-    import pandas as pd
     if not sheets_dict:
         return pd.DataFrame(), {}
     if len(sheets_dict) == 1:
@@ -94,7 +105,6 @@ def auto_join_sheets(sheets_dict):
 
 def read_file(file):
     """Read uploaded file into a DataFrame and extract table metadata."""
-    import pandas as pd
     filename = getattr(file, "filename", "")
     if not filename:
         raise ValueError("Empty filename")
@@ -118,8 +128,6 @@ def read_file(file):
 
 def convert_types(obj):
     """Convert NumPy/Pandas types to native Python types for JSON."""
-    import pandas as pd
-    import numpy as np
     if isinstance(obj, dict):
         return {k: convert_types(v) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
@@ -127,9 +135,11 @@ def convert_types(obj):
     elif isinstance(obj, (np.integer, np.int64, np.int32)):
         return int(obj)
     elif isinstance(obj, (np.floating, np.float64, np.float32)):
-        return float(obj)
+        return float(obj) if not np.isnan(obj) else None
     elif isinstance(obj, (np.ndarray, pd.Series)):
-        return obj.tolist()
+        return [convert_types(i) for i in obj.tolist()]
+    elif isinstance(obj, (pd.Timestamp, np.datetime64)):
+        return str(obj)
     elif obj is None or (pd.api.types.is_scalar(obj) and pd.isna(obj)):
         return None
     else:
@@ -155,7 +165,6 @@ def health():
 @app.route("/upload", methods=["POST"])
 def upload():
     try:
-        from eda_engine import run_eda
         # Check file presence
         if "file" not in request.files:
             return jsonify({
@@ -195,14 +204,13 @@ def upload():
         # Save DataFrame to session store for later exports
         file_id = str(uuid.uuid4())
 
-        # Aggressive memory cleanup for Vercel (Stateless environments)
-        keys = list(data_store.keys())
-        if len(keys) >= 1: 
-            for k in keys:
-                del data_store[k]
+        with data_store_lock:
+            if len(data_store) >= 10:
+                oldest_key = next(iter(data_store))
+                del data_store[oldest_key]
+            data_store[file_id] = df.copy()
+        
         gc.collect()
-
-        data_store[file_id] = df.copy()
 
         # Convert NumPy → Python types
         result = convert_types(result)
@@ -234,18 +242,16 @@ def upload():
         return jsonify(response)
 
     except Exception as e:
-        traceback.print_exc()
+        logger.error(f"Upload error: {str(e)}", exc_info=True)
         return jsonify({
             "success": False,
-            "error": str(e)
+            "error": "A server error occurred during processing."
         }), 500
 
 
 @app.route("/export", methods=["POST"])
 def export_data():
     try:
-        import pandas as pd
-        import numpy as np
         req_data = request.get_json(silent=True) or {}
         file_id = req_data.get("file_id")
         fixes = req_data.get("fixes", {})
@@ -335,13 +341,12 @@ def multi_line():
             "y2": grouped[y2_col].tolist()
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Multi-line API error: {str(e)}", exc_info=True)
+        return jsonify({"error": "Failed to process chart data."}), 500
 
 @app.route("/api/chart_data", methods=["POST"])
 def chart_data():
     try:
-        import pandas as pd
-        import numpy as np
         req = request.get_json(silent=True) or {}
         file_id = req.get("file_id")
         x_col = req.get("x_col")
@@ -384,22 +389,20 @@ def chart_data():
              grouped = grouped.sort_values(by=y_col, ascending=False).head(20)
              return jsonify({ "x": grouped[x_col].astype(str).tolist(), "y": grouped[y_col].tolist() })
 
-        # Logic for Measures and Optional Aggregation
-        if agg_func == 'none' or not y_col:
-            # Raw Data Points (No grouping)
-            cols_to_fetch = [x_col]
-            if y_col: cols_to_fetch.append(y_col)
-            subset = df[cols_to_fetch].dropna().head(500)
-            return jsonify({ 
-                "x": subset[x_col].astype(str).tolist(), 
-                "y": subset[y_col].tolist() if y_col else [1]*len(subset) 
+        # Power BI Style "Measure" Logic
+        if agg_func == 'none':
+            subset = df[[x_col, y_col]].dropna().head(500) if y_col else df[[x_col]].dropna().head(500)
+            return jsonify({
+                "x": subset[x_col].astype(str).tolist(),
+                "y": subset[y_col].tolist() if y_col else [1]*len(subset)
             })
 
-        if not pd.api.types.is_numeric_dtype(df[y_col]) and agg_func != "count":
+        if y_col and not pd.api.types.is_numeric_dtype(df[y_col]) and agg_func != "count":
             agg_func = "count" 
 
         if group_col and group_col in df.columns:
-            grouped = df.groupby([x_col, group_col], dropna=False)[y_col].agg(agg_func).reset_index()
+            actual_agg = agg_func if agg_func != 'none' else 'first'
+            grouped = df.groupby([x_col, group_col], dropna=False)[y_col].agg(actual_agg).reset_index()
             pivot = grouped.pivot(index=x_col, columns=group_col, values=y_col).fillna(0).head(100)
             return jsonify({
                 "x": [str(val) for val in pivot.index.tolist()],
@@ -414,14 +417,22 @@ def chart_data():
             })
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Chart data API error: {str(e)}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
 
 # -------------------------------
 # Run Server
 # -------------------------------
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    port = int(os.environ.get("PORT", 5000))
+    try:
+        try:
+            from waitress import serve
+        except ImportError:
+            raise ImportError("Waitress not installed")
+        logger.info(f"Starting production server on port {port}")
+        serve(app, host="0.0.0.0", port=port)
+    except ImportError:
+        logger.warning("Waitress not found, falling back to Flask dev server.")
+        app.run(host="0.0.0.0", port=port, debug=False)
