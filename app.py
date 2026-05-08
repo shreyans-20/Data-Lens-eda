@@ -124,13 +124,13 @@ def convert_types(obj):
         return {k: convert_types(v) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
         return [convert_types(i) for i in obj]
-    elif isinstance(obj, np.integer):
+    elif isinstance(obj, (np.integer, np.int64, np.int32)):
         return int(obj)
-    elif isinstance(obj, np.floating):
+    elif isinstance(obj, (np.floating, np.float64, np.float32)):
         return float(obj)
-    elif isinstance(obj, np.ndarray):
+    elif isinstance(obj, (np.ndarray, pd.Series)):
         return obj.tolist()
-    elif pd.api.types.is_scalar(obj) and pd.isna(obj):
+    elif obj is None or (pd.api.types.is_scalar(obj) and pd.isna(obj)):
         return None
     else:
         return obj
@@ -142,22 +142,9 @@ def convert_types(obj):
 
 @app.route("/")
 def index():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    try:
-        # Read the three files from the root directory
-        with open(os.path.join(base_dir, "index.html"), "r", encoding="utf-8") as f:
-            html = f.read()
-        with open(os.path.join(base_dir, "style.css"), "r", encoding="utf-8") as f:
-            css = f.read()
-        with open(os.path.join(base_dir, "app.js"), "r", encoding="utf-8") as f:
-            js = f.read()
-
-        # Replace the Jinja2 tags with the actual file contents
-        html = html.replace('<link rel="stylesheet" href="{{ url_for(\'static\', filename=\'style.css\') }}">', f'<style>{css}</style>')
-        html = html.replace('<script src="{{ url_for(\'static\', filename=\'app.js\') }}"></script>', f'<script>{js}</script>')
-        return html
-    except Exception as e:
-        return f"Frontend file error: Make sure index.html, style.css, and app.js are in {base_dir}. Details: {str(e)}", 500
+    # Standardizing for GitHub Pages & Vercel: Let Flask handle static assets natively
+    # This prevents 'cooking' the UI by hardcoding style/script injections
+    return render_template("index.html")
 
 
 @app.route("/health", methods=["GET"])
@@ -210,13 +197,14 @@ def upload():
 
         # Save DataFrame to session store for later exports
         file_id = str(uuid.uuid4())
-        
-        # Prevent memory leaks by capping the store at the 3 most recent uploads to protect RAM
-        if len(data_store) >= 3:
-            oldest_key = next(iter(data_store))
-            del data_store[oldest_key]
-            gc.collect()
-            
+
+        # Aggressive memory cleanup for Vercel (Stateless environments)
+        keys = list(data_store.keys())
+        if len(keys) >= 1: 
+            for k in keys:
+                del data_store[k]
+        gc.collect()
+
         data_store[file_id] = df.copy()
 
         # Convert NumPy → Python types
@@ -399,18 +387,25 @@ def chart_data():
              grouped = grouped.sort_values(by=y_col, ascending=False).head(20)
              return jsonify({ "x": grouped[x_col].astype(str).tolist(), "y": grouped[y_col].tolist() })
 
-        
-        if not pd.api.types.is_numeric_dtype(df[y_col]):
+        # Handle 'None' aggregation for Raw Data / Scatter plots
+        if agg_func == 'none':
+            subset = df[[x_col, y_col]].dropna().head(200)
+            return jsonify({ "x": subset[x_col].astype(str).tolist(), "y": subset[y_col].tolist() })
+
+        if not pd.api.types.is_numeric_dtype(df[y_col]) and agg_func not in ["count"]:
             agg_func = "count" 
 
         if group_col and group_col in df.columns:
-            grouped = df.groupby([x_col, group_col], dropna=False)[y_col].agg(agg_func).reset_index()
+            # Measure-style aggregation for grouped data
+            actual_agg = agg_func if agg_func != 'none' else 'first'
+            grouped = df.groupby([x_col, group_col], dropna=False)[y_col].agg(actual_agg).reset_index()
             pivot = grouped.pivot(index=x_col, columns=group_col, values=y_col).fillna(0).head(100)
             return jsonify({
-                "x": pivot.index.astype(str).tolist(),
+                "x": [str(val) for val in pivot.index.tolist()],
                 "series": {str(c): pivot[c].tolist() for c in pivot.columns}
             })
         else:
+            # Standard Measure aggregation
             grouped = df.groupby(x_col, dropna=False)[y_col].agg(agg_func).reset_index().head(100)
             return jsonify({
                 "x": grouped[x_col].astype(str).tolist(),
