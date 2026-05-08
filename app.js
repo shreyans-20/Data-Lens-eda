@@ -1054,14 +1054,14 @@ function openVisBuilder() {
                            <div class="pbi-drop" data-zone="group" style="display:none;">Drop Field Here</div>
                        </div>
                        <div class="pbi-zone">
-                           <div class="pbi-zone-label" style="font-size:0.8rem; margin-bottom:4px; font-weight:bold; color:var(--ink-full, #333);">Aggregation (Optional Measure)</div>
+                           <div class="pbi-zone-label" style="font-size:0.8rem; margin-bottom:4px; font-weight:bold; color:var(--ink-full, #333);">Measure / Aggregation</div>
                            <select id="pbi-agg-func" style="width:100%; padding:6px; border:1px solid var(--border); border-radius:4px; background: var(--bg); color: var(--ink-full); font-size: 0.8rem;">
-                               <option value="none">None (Raw Data Points)</option>
+                               <option value="none">Raw Data (No Aggregation)</option>
                                <option value="sum">Sum</option>
-                               <option value="mean">Average</option>
-                               <option value="count">Count</option>
-                               <option value="min">Min</option>
-                               <option value="max">Max</option>
+                               <option value="mean">Average (Measure)</option>
+                               <option value="count">Count (Measure)</option>
+                               <option value="min">Minimum (Measure)</option>
+                               <option value="max">Maximum (Measure)</option>
                            </select>
                        </div>
                    </div>
