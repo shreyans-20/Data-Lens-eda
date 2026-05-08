@@ -142,10 +142,7 @@ def convert_types(obj):
 
 @app.route("/")
 def index():
-    # Standardizing for GitHub Pages & Vercel: Let Flask handle static assets natively
-    # This prevents 'cooking' the UI by hardcoding style/script injections
     return render_template("index.html")
-
 
 @app.route("/health", methods=["GET"])
 def health():
@@ -387,18 +384,22 @@ def chart_data():
              grouped = grouped.sort_values(by=y_col, ascending=False).head(20)
              return jsonify({ "x": grouped[x_col].astype(str).tolist(), "y": grouped[y_col].tolist() })
 
-        # Handle 'None' aggregation for Raw Data / Scatter plots
-        if agg_func == 'none':
-            subset = df[[x_col, y_col]].dropna().head(200)
-            return jsonify({ "x": subset[x_col].astype(str).tolist(), "y": subset[y_col].tolist() })
+        # Logic for Measures and Optional Aggregation
+        if agg_func == 'none' or not y_col:
+            # Raw Data Points (No grouping)
+            cols_to_fetch = [x_col]
+            if y_col: cols_to_fetch.append(y_col)
+            subset = df[cols_to_fetch].dropna().head(500)
+            return jsonify({ 
+                "x": subset[x_col].astype(str).tolist(), 
+                "y": subset[y_col].tolist() if y_col else [1]*len(subset) 
+            })
 
-        if not pd.api.types.is_numeric_dtype(df[y_col]) and agg_func not in ["count"]:
+        if not pd.api.types.is_numeric_dtype(df[y_col]) and agg_func != "count":
             agg_func = "count" 
 
         if group_col and group_col in df.columns:
-            # Measure-style aggregation for grouped data
-            actual_agg = agg_func if agg_func != 'none' else 'first'
-            grouped = df.groupby([x_col, group_col], dropna=False)[y_col].agg(actual_agg).reset_index()
+            grouped = df.groupby([x_col, group_col], dropna=False)[y_col].agg(agg_func).reset_index()
             pivot = grouped.pivot(index=x_col, columns=group_col, values=y_col).fillna(0).head(100)
             return jsonify({
                 "x": [str(val) for val in pivot.index.tolist()],
