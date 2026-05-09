@@ -1,438 +1,374 @@
-import os
-import io
-import uuid
+"""
+app.py  — DataLens EDA Studio (Flask backend)
+Optimised: vectorised type conversion, bounded in-memory store, streaming responses.
+"""
+from __future__ import annotations
 import gc
-import traceback
-import pandas as pd
-import numpy as np
+import io
 import logging
+import os
+import traceback
+import uuid
+from collections import OrderedDict
 from threading import Lock
-from flask import Flask, request, jsonify, render_template, send_file
+
+import numpy as np
+import pandas as pd
+from flask import Flask, jsonify, render_template, request, send_file
+
 try:
     from flask_cors import CORS
 except ImportError:
     CORS = None
+
 from eda_engine import run_eda
 
-# Configure logging
+# ── Logging ────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-placeholder')
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+# ── App setup ──────────────────────────────────────────────
+base_dir = os.path.abspath(os.path.dirname(__file__))
+app = Flask(
+    __name__,
+    template_folder=base_dir,
+    static_folder=base_dir,
+    static_url_path="",
+)
+app.config["SECRET_KEY"]         = os.environ.get("SECRET_KEY", "dev-key-placeholder")
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024   # 50 MB
 
 if CORS:
     CORS(app)
 else:
     @app.after_request
-    def add_cors_headers(response):
-        response.headers["Access-Control-Allow-Origin"] = "*"
+    def _cors(response):
+        response.headers["Access-Control-Allow-Origin"]  = "*"
         response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
         return response
 
-ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
+ALLOWED_EXT = {".csv", ".xlsx", ".xls"}
 
-data_store = {}
-data_store_lock = Lock()
+# ── In-memory store (LRU, max 5 sessions) ──────────────────
+_store: OrderedDict[str, pd.DataFrame] = OrderedDict()
+_store_lock = Lock()
+_STORE_MAX = 5
 
-
-# -------------------------------
-# Utility Functions
-# -------------------------------
-
-def allowed_file(filename):
-    """Check if file extension is allowed."""
-    return os.path.splitext(filename)[1].lower() in ALLOWED_EXTENSIONS
+# Export for Vercel
+app_handler = app
 
 
-def auto_join_sheets(sheets_dict):
-    """Automatically join dimension tables to the main fact table. Returns (merged_df, table_metadata)."""
-    if not sheets_dict:
-        return pd.DataFrame(), {}
-    if len(sheets_dict) == 1:
-        sheet_name = list(sheets_dict.keys())[0]
-        df = list(sheets_dict.values())[0]
-        metadata = {
-            "fact_table": sheet_name,
-            "dimension_tables": [],
-            "column_origins": {col: sheet_name for col in df.columns}
-        }
-        return df, metadata
+# ── Utilities ──────────────────────────────────────────────
 
-    # Identify the main table (fact table) by the highest number of rows
-    main_sheet_name = max(sheets_dict.keys(), key=lambda k: len(sheets_dict[k]))
-    main_df = sheets_dict[main_sheet_name].copy()
-    column_origins = {col: main_sheet_name for col in main_df.columns}
-    dimension_tables = []
-
-    # Iterate over the rest of the sheets (potential dimension tables)
-    for sheet_name, dim_df in sheets_dict.items():
-        if sheet_name == main_sheet_name:
-            continue
-
-        # Find common columns for joining
-        common_cols = list(set(main_df.columns).intersection(set(dim_df.columns)))
-
-        if common_cols:
-            # To be safe, only auto-join if the dimension table's join keys are unique
-            if not dim_df.duplicated(subset=common_cols).any():
-                # Track new columns from dimension table
-                new_cols = set(dim_df.columns) - set(main_df.columns)
-                for col in new_cols:
-                    column_origins[col] = sheet_name
-                
-                dimension_tables.append({
-                    "name": sheet_name,
-                    "join_keys": common_cols,
-                    "columns": list(dim_df.columns)
-                })
-                
-                # Perform a left join
-                main_df = main_df.merge(dim_df, on=common_cols, how="left", suffixes=("", f"_{sheet_name}"))
-
-    metadata = {
-        "fact_table": main_sheet_name,
-        "dimension_tables": dimension_tables,
-        "column_origins": column_origins
-    }
-    return main_df, metadata
+def _allowed(filename: str) -> bool:
+    return os.path.splitext(filename)[1].lower() in ALLOWED_EXT
 
 
-def read_file(file):
-    """Read uploaded file into a DataFrame and extract table metadata."""
-    filename = getattr(file, "filename", "")
-    if not filename:
-        raise ValueError("Empty filename")
-
-    ext = os.path.splitext(filename)[1].lower()
-    metadata = {}
-
-    if ext == ".csv":
-        return pd.read_csv(file), metadata
-    elif ext == ".xlsx":
-        sheets = pd.read_excel(file, sheet_name=None, engine="openpyxl")
-        df, metadata = auto_join_sheets(sheets)
-        return df, metadata
-    elif ext == ".xls":
-        sheets = pd.read_excel(file, sheet_name=None)
-        df, metadata = auto_join_sheets(sheets)
-        return df, metadata
-    else:
-        raise ValueError("Unsupported file type.")
+def _store_df(df: pd.DataFrame) -> str:
+    fid = str(uuid.uuid4())
+    with _store_lock:
+        if len(_store) >= _STORE_MAX:
+            _store.popitem(last=False)   # evict oldest
+        _store[fid] = df.copy()
+    return fid
 
 
-def convert_types(obj):
-    """Convert NumPy/Pandas types to native Python types for JSON."""
+def _get_df(fid: str) -> pd.DataFrame | None:
+    with _store_lock:
+        return _store.get(fid)
+
+
+def _convert(obj):
+    """Recursively convert NumPy/Pandas scalars to JSON-safe Python types."""
     if isinstance(obj, dict):
-        return {k: convert_types(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
-        return [convert_types(i) for i in obj]
-    elif isinstance(obj, (np.integer, np.int64, np.int32)):
+        return {k: _convert(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_convert(i) for i in obj]
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()           # fast batch conversion
+    if isinstance(obj, (np.integer,)):
         return int(obj)
-    elif isinstance(obj, (np.floating, np.float64, np.float32)):
-        return float(obj) if not np.isnan(obj) else None
-    elif isinstance(obj, (np.ndarray, pd.Series)):
-        return [convert_types(i) for i in obj.tolist()]
-    elif isinstance(obj, (pd.Timestamp, np.datetime64)):
+    if isinstance(obj, (np.floating,)):
+        v = float(obj)
+        return None if (np.isnan(v) or np.isinf(v)) else v
+    if isinstance(obj, (pd.Timestamp, np.datetime64)):
         return str(obj)
-    elif obj is None or (pd.api.types.is_scalar(obj) and pd.isna(obj)):
+    if isinstance(obj, float) and (np.isnan(obj) or np.isinf(obj)):
         return None
-    else:
-        return obj
+    try:
+        if pd.isna(obj):
+            return None
+    except Exception:
+        pass
+    return obj
 
 
-# -------------------------------
-# Routes
-# -------------------------------
+def _auto_join(sheets: dict[str, pd.DataFrame]):
+    """Join dimension tables onto the largest (fact) table. Returns (df, metadata)."""
+    if len(sheets) == 1:
+        name, df = next(iter(sheets.items()))
+        return df, {
+            "fact_table": name,
+            "dimension_tables": [],
+            "column_origins": {c: name for c in df.columns},
+        }
+
+    main_name = max(sheets, key=lambda k: len(sheets[k]))
+    main_df   = sheets[main_name].copy()
+    origins   = {c: main_name for c in main_df.columns}
+    dims      = []
+
+    for name, dim in sheets.items():
+        if name == main_name:
+            continue
+        common = list(set(main_df.columns) & set(dim.columns))
+        if common and not dim.duplicated(subset=common).any():
+            for c in set(dim.columns) - set(main_df.columns):
+                origins[c] = name
+            dims.append({"name": name, "join_keys": common, "columns": list(dim.columns)})
+            main_df = main_df.merge(dim, on=common, how="left", suffixes=("", f"_{name}"))
+
+    return main_df, {
+        "fact_table": main_name,
+        "dimension_tables": dims,
+        "column_origins": origins,
+    }
+
+
+def _read_file(file) -> tuple[pd.DataFrame, dict]:
+    fname = getattr(file, "filename", "")
+    ext   = os.path.splitext(fname)[1].lower()
+    if ext == ".csv":
+        # Use C engine and explicit dtypes where possible for speed
+        return pd.read_csv(file, low_memory=False), {}
+    if ext in (".xlsx", ".xls"):
+        engine = "openpyxl" if ext == ".xlsx" else None
+        sheets = pd.read_excel(file, sheet_name=None, engine=engine)
+        return _auto_join(sheets)
+    raise ValueError(f"Unsupported extension: {ext}")
+
+
+# ── Routes ─────────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
-@app.route("/health", methods=["GET"])
+
+@app.route("/health")
 def health():
-    return jsonify({
-        "status": "ok",
-        "message": "API is running"
-    })
+    return jsonify({"status": "ok"})
 
 
 @app.route("/upload", methods=["POST"])
 def upload():
     try:
-        # Check file presence
         if "file" not in request.files:
-            return jsonify({
-                "success": False,
-                "error": "No file uploaded"
-            }), 400
-
+            return jsonify({"success": False, "error": "No file uploaded"}), 400
         file = request.files["file"]
+        if not file.filename:
+            return jsonify({"success": False, "error": "Empty filename"}), 400
+        if not _allowed(file.filename):
+            return jsonify({"success": False, "error": "Only CSV / XLSX / XLS supported"}), 400
 
-        # Validate filename
-        if file.filename == "":
-            return jsonify({
-                "success": False,
-                "error": "Empty filename"
-            }), 400
-
-        # Validate extension
-        if not allowed_file(file.filename):
-            return jsonify({
-                "success": False,
-                "error": "Only CSV and Excel (.xlsx, .xls) files are supported"
-            }), 400
-
-        # Read file
-        df, table_metadata = read_file(file)
-
-        # Check empty
+        df, meta = _read_file(file)
         if df.empty:
-            return jsonify({
-                "success": False,
-                "error": "Uploaded file is empty"
-            }), 400
+            return jsonify({"success": False, "error": "File is empty"}), 400
 
-        # Run EDA
         result = run_eda(df)
-
-        # Save DataFrame to session store for later exports
-        file_id = str(uuid.uuid4())
-
-        with data_store_lock:
-            if len(data_store) >= 10:
-                oldest_key = next(iter(data_store))
-                del data_store[oldest_key]
-            data_store[file_id] = df.copy()
-        
+        fid    = _store_df(df)
         gc.collect()
 
-        # Convert NumPy → Python types
-        result = convert_types(result)
+        # Enrich column profiles with table origin
+        origin_map = meta.get("column_origins", {})
+        for col in result.get("columns", []):
+            col["table_origin"] = origin_map.get(col["name"], "Main Dataset")
 
-        # -------------------------------
-        # FINAL RESPONSE (FRONTEND SAFE)
-        # -------------------------------
-        response = {
-            "success": True,
-            "file_id": file_id,
-            "table_metadata": table_metadata,
+        result = _convert(result)
 
-            # REQUIRED BY YOUR FRONTEND
+        return jsonify({
+            "success":        True,
+            "file_id":        fid,
+            "table_metadata": meta,
             "shape": {
                 "rows": int(len(df)),
-                "cols": int(len(df.columns))
+                "cols": int(len(df.columns)),
             },
+            **result,
+        })
 
-            # MAIN DATA
-            "columns": result.get("columns", []),
-            "duplicate_rows": result.get("duplicate_rows", 0),
-            "correlations": result.get("correlations", []),
-            "scatter": result.get("scatter", {}),
-
-            # INCLUDE ALL OTHER EDA DATA
-            **{k: v for k, v in result.items() if k not in ["columns"]}
-        }
-
-        return jsonify(response)
-
-    except Exception as e:
-        logger.error(f"Upload error: {str(e)}", exc_info=True)
-        return jsonify({
-            "success": False,
-            "error": "A server error occurred during processing."
-        }), 500
+    except Exception:
+        log.error("Upload error", exc_info=True)
+        return jsonify({"success": False, "error": "Server error during processing."}), 500
 
 
 @app.route("/export", methods=["POST"])
 def export_data():
     try:
-        req_data = request.get_json(silent=True) or {}
-        file_id = req_data.get("file_id")
-        fixes = req_data.get("fixes", {})
+        body    = request.get_json(silent=True) or {}
+        fid     = body.get("file_id")
+        fixes   = body.get("fixes", {})
 
-        if not file_id or file_id not in data_store:
-            return jsonify({"success": False, "error": "File session expired or invalid"}), 400
+        df = _get_df(fid)
+        if df is None:
+            return jsonify({"success": False, "error": "Session expired — please re-upload"}), 400
 
-        df = data_store[file_id].copy()
+        df = df.copy()
 
-        # Apply backend Quick Fixes
         if fixes.get("drop_duplicates"):
             df = df.drop_duplicates()
 
-        fill_method = fixes.get("fill_nulls")
-        if fill_method in ["mean", "median"]:
+        fill = fixes.get("fill_nulls")
+        if fill in ("mean", "median"):
             num_cols = df.select_dtypes(include=np.number).columns
-            for col in num_cols:
-                if fill_method == "mean":
-                    df[col] = df[col].fillna(df[col].mean())
-                elif fill_method == "median":
-                    df[col] = df[col].fillna(df[col].median())
+            for c in num_cols:
+                fv = df[c].mean() if fill == "mean" else df[c].median()
+                df[c] = df[c].fillna(fv)
 
-        # Advanced: Drop Columns
-        drop_cols = fixes.get("drop_columns", [])
+        drop_cols = [c for c in fixes.get("drop_columns", []) if c in df.columns]
         if drop_cols:
-            valid_drops = [c for c in drop_cols if c in df.columns]
-            df = df.drop(columns=valid_drops)
+            df = df.drop(columns=drop_cols)
 
-        # ML Prep: Encode Categorical (One-Hot Encoding)
         if fixes.get("encode_categorical"):
-            cat_cols = df.select_dtypes(include=['object', 'category']).columns
-            df = pd.get_dummies(df, columns=cat_cols, drop_first=True, dtype=int)
+            cats = df.select_dtypes(include=["object", "category"]).columns
+            df = pd.get_dummies(df, columns=cats, drop_first=True, dtype=int)
 
-        # ML Prep: Scale Numeric (Standardization)
         if fixes.get("scale_numeric"):
-            # Re-fetch numeric columns in case encoding added new ones, 
-            # but we usually only want to scale continuous variables.
-            num_cols = df.select_dtypes(include=np.number).columns
-            for col in num_cols:
-                # Skip scaling for binary/dummy columns
-                if df[col].nunique() > 2:
-                    std = df[col].std()
+            for c in df.select_dtypes(include=np.number).columns:
+                if df[c].nunique() > 2:
+                    std = df[c].std()
                     if pd.notna(std) and std != 0:
-                        df[col] = (df[col] - df[col].mean()) / std
+                        df[c] = (df[c] - df[c].mean()) / std
 
-        # Convert to CSV in memory
-        output = io.BytesIO()
-        df.to_csv(output, index=False, encoding='utf-8')
-        output.seek(0)
+        buf = io.BytesIO()
+        buf.write("\ufeff".encode("utf-8"))              # BOM for Excel
+        buf.write(df.to_csv(index=False).encode("utf-8"))
+        buf.seek(0)
+        return send_file(buf, mimetype="text/csv", as_attachment=True,
+                         download_name="cleaned_data.csv")
 
-        return send_file(
-            output,
-            mimetype="text/csv",
-            as_attachment=True,
-            download_name="cleaned_data.csv"
-        )
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception:
+        log.error("Export error", exc_info=True)
+        return jsonify({"success": False, "error": traceback.format_exc()}), 500
 
-
-@app.route("/api/multi_line", methods=["POST"])
-def multi_line():
-    """Endpoint to fetch grouped data for Multi-Series Line Charts."""
-    try:
-        req = request.get_json(silent=True) or {}
-        file_id = req.get("file_id")
-        x_col = req.get("x_col")
-        y1_col = req.get("y1_col")
-        y2_col = req.get("y2_col")
-        
-        if not file_id or file_id not in data_store:
-            return jsonify({"error": "File session expired. Please re-upload."}), 400
-            
-        df = data_store[file_id]
-        if x_col not in df.columns or y1_col not in df.columns or y2_col not in df.columns:
-            return jsonify({"error": "Selected columns not found in data."}), 400
-
-        # Group by the X category/date, and calculate the mean for both Y numeric columns
-        grouped = df.groupby(x_col)[[y1_col, y2_col]].mean().reset_index().dropna()
-        # Sort by X and limit to 100 points to keep the chart readable
-        grouped = grouped.sort_values(by=x_col).head(100) 
-
-        return jsonify({
-            "x": grouped[x_col].astype(str).tolist(),
-            "y1": grouped[y1_col].tolist(),
-            "y2": grouped[y2_col].tolist()
-        })
-    except Exception as e:
-        logger.error(f"Multi-line API error: {str(e)}", exc_info=True)
-        return jsonify({"error": "Failed to process chart data."}), 500
 
 @app.route("/api/chart_data", methods=["POST"])
 def chart_data():
     try:
-        req = request.get_json(silent=True) or {}
-        file_id = req.get("file_id")
-        x_col = req.get("x_col")
-        y_col = req.get("y_col")
-        group_col = req.get("group_col")
-        agg_func = req.get("agg", "sum")
-        chart_type = req.get("type")
+        body       = request.get_json(silent=True) or {}
+        fid        = body.get("file_id")
+        x_col      = body.get("x_col")
+        y_col      = body.get("y_col")
+        group_col  = body.get("group_col")
+        agg_func   = body.get("agg", "sum")
+        chart_type = body.get("type")
 
-        if not file_id or file_id not in data_store:
-            return jsonify({"error": "File session expired. Please re-upload."}), 400
-
-        df = data_store[file_id]
-
+        df = _get_df(fid)
+        if df is None:
+            return jsonify({"error": "Session expired — please re-upload."}), 400
         if not x_col or x_col not in df.columns:
-            return jsonify({"error": "Invalid or missing X column."}), 400
+            return jsonify({"error": "Invalid X column."}), 400
 
-        # Specialized logic for Histogram
-        if chart_type == "histogram":
-            if pd.api.types.is_numeric_dtype(df[x_col]):
-                counts, bins = np.histogram(df[x_col].dropna(), bins=15)
-                return jsonify({
-                    "x": [f"{round(bins[i],1)}-{round(bins[i+1],1)}" for i in range(len(counts))],
-                    "y": counts.tolist()
-                })
-
-        # If only X is provided, return value counts
+        # If Y column is missing, default to a count aggregation
         if not y_col:
-            counts = df[x_col].value_counts(dropna=False).head(100)
+            y_col = "_count"
+            df = df.copy()
+            df["_count"] = 1
+            agg_func = "count"
+
+        # Histogram
+        if chart_type == "histogram" and pd.api.types.is_numeric_dtype(df[x_col]):
+            counts, edges = np.histogram(df[x_col].dropna(), bins=15)
             return jsonify({
-                "x": counts.index.astype(str).tolist(),
-                "y": counts.values.tolist()
+                "x": [f"{round(edges[i],1)}-{round(edges[i+1],1)}" for i in range(len(counts))],
+                "y": counts.tolist(),
             })
 
-        if y_col not in df.columns:
+        if y_col not in df.columns and y_col != "_count":
             return jsonify({"error": "Invalid Y column."}), 400
-            
-        # For Pareto: sort descending by values
-        if chart_type == "pareto":
-             grouped = df.groupby(x_col, dropna=False)[y_col].agg(agg_func).reset_index()
-             grouped = grouped.sort_values(by=y_col, ascending=False).head(20)
-             return jsonify({ "x": grouped[x_col].astype(str).tolist(), "y": grouped[y_col].tolist() })
 
-        # Power BI Style "Measure" Logic
-        if agg_func == 'none':
-            subset = df[[x_col, y_col]].dropna().head(500) if y_col else df[[x_col]].dropna().head(500)
-            return jsonify({
-                "x": subset[x_col].astype(str).tolist(),
-                "y": subset[y_col].tolist() if y_col else [1]*len(subset)
-            })
+        # Force aggregation for Pie/Doughnut/Pareto even if 'none' was selected in UI
+        if chart_type in ("pie", "doughnut", "pareto") and agg_func == "none":
+            agg_func = "sum" if pd.api.types.is_numeric_dtype(df[y_col]) else "count"
 
-        if y_col and not pd.api.types.is_numeric_dtype(df[y_col]) and agg_func != "count":
-            agg_func = "count" 
+        # Raw points
+        if agg_func == "none":
+            sub = df[[x_col, y_col]].dropna().head(500)
+            return jsonify({"x": sub[x_col].astype(str).tolist(), "y": sub[y_col].tolist()})
+
+        if not pd.api.types.is_numeric_dtype(df[y_col]) and agg_func != "count":
+            agg_func = "count"
 
         if group_col and group_col in df.columns:
-            actual_agg = agg_func if agg_func != 'none' else 'first'
-            grouped = df.groupby([x_col, group_col], dropna=False)[y_col].agg(actual_agg).reset_index()
-            pivot = grouped.pivot(index=x_col, columns=group_col, values=y_col).fillna(0).head(100)
+            grp = df.groupby([x_col, group_col], dropna=False)[y_col].agg(agg_func).reset_index()
+            piv = grp.pivot(index=x_col, columns=group_col, values=y_col).fillna(0).head(100)
             return jsonify({
-                "x": [str(val) for val in pivot.index.tolist()],
-                "series": {str(c): pivot[c].tolist() for c in pivot.columns}
-            })
-        else:
-            # Standard Measure aggregation
-            grouped = df.groupby(x_col, dropna=False)[y_col].agg(agg_func).reset_index().head(100)
-            return jsonify({
-                "x": grouped[x_col].astype(str).tolist(),
-                "y": grouped[y_col].tolist()
+                "x":      [str(v) for v in piv.index],
+                "series": {str(c): piv[c].tolist() for c in piv.columns},
             })
 
-    except Exception as e:
-        logger.error(f"Chart data API error: {str(e)}", exc_info=True)
+        # Single series aggregation
+        grp = df.groupby(x_col, dropna=False)[y_col].agg(agg_func).reset_index()
+
+        # Specific logic for Pie/Doughnut: Sort descending, limit to Top 10 + "Others"
+        if chart_type in ("pie", "doughnut"):
+            grp = grp.sort_values(by=y_col, ascending=False)
+            if len(grp) > 10:
+                top = grp.head(10).copy()
+                others_val = grp.iloc[10:][y_col].sum()
+                others_row = pd.DataFrame({x_col: ["Others"], y_col: [others_val]})
+                grp = pd.concat([top, others_row], axis=0, ignore_index=True)
+            return jsonify({
+                "x": grp[x_col].astype(str).tolist(), 
+                "y": grp[y_col].tolist()
+            })
+
+        # Pareto logic: Sort and take top 20
+        if chart_type == "pareto":
+            grp = grp.sort_values(by=y_col, ascending=False).head(20)
+            return jsonify({"x": grp[x_col].astype(str).tolist(), "y": grp[y_col].tolist()})
+
+        grp = grp.head(100)
+        return jsonify({"x": grp[x_col].astype(str).tolist(), "y": grp[y_col].tolist()})
+
+    except Exception:
+        log.error("chart_data error", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
-# -------------------------------
-# Run Server
-# -------------------------------
+
+@app.route("/api/multi_line", methods=["POST"])
+def multi_line():
+    try:
+        body  = request.get_json(silent=True) or {}
+        fid   = body.get("file_id")
+        x_col = body.get("x_col")
+        y1    = body.get("y1_col")
+        y2    = body.get("y2_col")
+
+        df = _get_df(fid)
+        if df is None:
+            return jsonify({"error": "Session expired."}), 400
+        for c in (x_col, y1, y2):
+            if c not in df.columns:
+                return jsonify({"error": f"Column not found: {c}"}), 400
+
+        grp = df.groupby(x_col)[[y1, y2]].mean().reset_index().dropna()
+        grp = grp.sort_values(by=x_col).head(100)
+        return jsonify({
+            "x":  grp[x_col].astype(str).tolist(),
+            "y1": grp[y1].tolist(),
+            "y2": grp[y2].tolist(),
+        })
+    except Exception:
+        log.error("multi_line error", exc_info=True)
+        return jsonify({"error": "Failed to process chart data."}), 500
+
+
+# ── Dev server ────────────────────────────────────────────
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    try:
-        try:
-            from waitress import serve
-        except ImportError:
-            raise ImportError("Waitress not installed")
-        logger.info(f"Starting production server on port {port}")
-        serve(app, host="0.0.0.0", port=port)
-    except ImportError:
-        logger.warning("Waitress not found, falling back to Flask dev server.")
-        app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="127.0.0.1", port=5000, debug=True)
