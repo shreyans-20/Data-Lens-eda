@@ -4,9 +4,27 @@
     {
       "src": "app.py",
       "use": "@vercel/python"
+    },
+    {
+      "src": "*.js",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "*.css",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "*.html",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
-    { "src": "/(.*)", "dest": "app.py" }
+    { "src": "/upload",        "dest": "/app.py" },
+    { "src": "/export",        "dest": "/app.py" },
+    { "src": "/api/(.*)",      "dest": "/app.py" },
+    { "src": "/health",        "dest": "/app.py" },
+    { "src": "/app\\.js",      "dest": "/app.js" },
+    { "src": "/style\\.css",   "dest": "/style.css" },
+    { "src": "/(index\\.html)?", "dest": "/index.html" }
   ]
 }
