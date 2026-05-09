@@ -5,20 +5,38 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>DataLens — EDA Studio</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231e293b'/><text x='16' y='23' text-anchor='middle' font-size='18' font-family='serif' fill='white' font-style='italic'>D</text></svg>"/>
+
+<!-- Preconnect to speed up font & CDN fetches -->
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="preconnect" href="https://cdn.jsdelivr.net"/>
+
+<!-- Fonts — display=swap avoids FOIT -->
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+<!-- Chart.js — async so it doesn't block first paint -->
+<script>
+  window._chartReady = false;
+  window._chartReadyCallbacks = [];
+  function _onChartReady() {
+    if (typeof Chart === "undefined") return;
+    if (typeof ChartDataLabels !== "undefined") Chart.register(ChartDataLabels);
+    window._chartReady = true;
+    (window._chartReadyCallbacks || []).forEach(f => f());
+    window._chartReadyCallbacks = [];
+  }
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" onload="_onChartReady()"></script>
+<script async src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0" onload="_onChartReady()"></script>
+
+<link rel="stylesheet" href="style.css"/>
 </head>
 <body>
 
-<!-- TOAST CONTAINER -->
-<div id="toast-container" role="region" aria-live="polite" aria-label="Notifications"></div>
+<div id="toast-container" role="region" aria-live="polite"></div>
+<button id="scroll-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Back to top">↑</button>
 
-<!-- SCROLL TO TOP -->
-<button id="scroll-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Back to top" title="Back to top">↑</button>
-
-<!-- ── HEADER ── -->
+<!-- HEADER -->
 <header role="banner">
   <div class="brand">
     <div class="brand-mark" aria-hidden="true">D</div>
@@ -29,28 +47,27 @@
   </div>
   <div class="header-actions">
     <div class="file-badge" id="file-badge" role="status" aria-live="polite">
-      <span class="file-badge-dot" aria-hidden="true"></span>
+      <span class="file-badge-dot"></span>
       <span id="badge-name">file.csv</span>
     </div>
-    <button class="btn btn-sm" id="btn-report" style="display:none" onclick="openReport()" aria-label="Generate EDA Report">📄 Report</button>
-    <button class="btn btn-accent btn-sm" id="btn-vis-builder" style="display:none" onclick="openVisBuilder()" aria-label="Open Visualization Builder">📊 Visualize</button>
-    <button id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark/light mode" title="Toggle dark mode">🌙</button>
-    <button class="btn btn-sm" id="btn-reset" style="display:none" onclick="resetApp()" aria-label="Close current dataset">✕ Close</button>
+    <button class="btn btn-sm" id="btn-report" style="display:none" onclick="openReport()">📄 Report</button>
+    <button class="btn btn-accent btn-sm" id="btn-vis-builder" style="display:none" onclick="openVisBuilder()">📊 Visualize</button>
+    <button id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark/light mode">🌙</button>
+    <button class="btn btn-sm" id="btn-reset" style="display:none" onclick="resetApp()">✕ Close</button>
   </div>
 </header>
 
-<!-- ── UPLOAD SCREEN ── -->
+<!-- UPLOAD SCREEN -->
 <main id="upload-screen" role="main">
   <div class="upload-hero">
     <h1>Explore your data<br/><em>instantly.</em></h1>
     <p>Upload any CSV or Excel file — supports 1 lakh+ rows. DataLens auto-detects column types, computes statistics, surfaces correlations, flags outliers, and lets you clean and export — no setup needed.</p>
   </div>
-
-  <div class="upload-box" id="upload-box" role="button" tabindex="0" aria-label="Drop your CSV or Excel file here, or click to choose a file">
+  <div class="upload-box" id="upload-box" role="button" tabindex="0" aria-label="Drop your CSV or Excel file here, or click to choose">
     <span class="upload-icon" aria-hidden="true">📂</span>
     <h3>Drop your file here</h3>
     <p>CSV, Excel (.xlsx, .xls) — 1,00,000+ rows supported</p>
-    <div class="format-chips" aria-label="Supported formats">
+    <div class="format-chips">
       <span class="chip chip-blue">CSV</span>
       <span class="chip chip-green">XLSX</span>
       <span class="chip chip-amber">XLS</span>
@@ -60,56 +77,52 @@
     <br/>
     <button class="sample-btn" onclick="loadSampleData()">→ Try with sample data (no upload needed)</button>
   </div>
-
   <div class="social-links">
-    <a href="https://www.linkedin.com/in/shreyansjainn/" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">
+    <a href="https://www.linkedin.com/in/shreyansjainn/" target="_blank" rel="noopener noreferrer">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
       LinkedIn
     </a>
-    <a href="https://github.com/shreyans-20" target="_blank" rel="noopener noreferrer" aria-label="GitHub">
+    <a href="https://github.com/shreyans-20" target="_blank" rel="noopener noreferrer">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
       GitHub
     </a>
   </div>
 </main>
 
-<!-- ── LOADER ── -->
+<!-- LOADER -->
 <div id="loader" role="status" aria-label="Processing your file">
-  <div class="loader-spinner" aria-hidden="true"></div>
+  <div class="loader-spinner"></div>
   <div class="loader-msg" id="loader-msg" aria-live="polite">Reading file...</div>
   <div class="loader-sub" id="loader-sub" aria-live="polite"></div>
-  <div class="loader-track" role="progressbar" aria-label="Processing progress"><div class="loader-fill"></div></div>
+  <div class="loader-track"><div class="loader-fill"></div></div>
 </div>
 
-<!-- ── EXPORT BANNER ── -->
+<!-- EXPORT BANNER -->
 <div id="export-banner" role="alert" aria-live="polite">
-  <span aria-hidden="true">✅</span>
-  <span id="export-banner-msg"><strong>Dataset modified.</strong> Your changes are applied in memory.</span>
-  <button class="btn btn-sm" style="background:var(--green);color:#fff;border-color:var(--green);margin-left:auto" onclick="exportCleanedCSV()" aria-label="Export cleaned dataset as CSV">⬇ Export Cleaned CSV</button>
-  <button class="btn-ghost" style="font-size:0.8rem" onclick="document.getElementById('export-banner').classList.remove('show')" aria-label="Dismiss notification">✕</button>
+  <span>✅</span>
+  <span id="export-banner-msg"><strong>Dataset modified.</strong></span>
+  <button class="btn btn-sm" style="background:var(--green);color:#fff;border-color:var(--green);margin-left:auto" onclick="exportCleanedCSV()">⬇ Export Cleaned CSV</button>
+  <button class="btn-ghost" style="font-size:0.8rem" onclick="document.getElementById('export-banner').classList.remove('show')">✕</button>
 </div>
 
-<!-- ── DASHBOARD ── -->
+<!-- DASHBOARD -->
 <div id="dashboard" role="main">
 
-  <!-- TOP BAR -->
-  <div class="top-bar" role="region" aria-label="File info">
-    <div class="dot" aria-hidden="true"></div>
+  <div class="top-bar">
+    <div class="dot"></div>
     <div>
       <div class="fname" id="db-fname">—</div>
       <div class="fmeta" id="db-fmeta">—</div>
     </div>
     <div class="spacer"></div>
-    <button class="btn btn-sm" onclick="openReport()" aria-label="Generate report">📄 Generate Report</button>
-    <button class="btn btn-accent btn-sm" onclick="openVisBuilder()" aria-label="Open visualization builder">📊 Visualization Builder</button>
-    <button class="btn btn-sm" onclick="resetApp()" aria-label="Close dataset">✕ Close</button>
+    <button class="btn btn-sm" onclick="openReport()">📄 Generate Report</button>
+    <button class="btn btn-accent btn-sm" onclick="openVisBuilder()">📊 Visualization Builder</button>
+    <button class="btn btn-sm" onclick="resetApp()">✕ Close</button>
   </div>
 
-  <!-- SECTION 1: OVERVIEW -->
   <div class="sec-label" role="heading" aria-level="2">01 — Dataset Overview</div>
-  <div id="overview-grid" role="region" aria-label="Dataset overview statistics"></div>
+  <div id="overview-grid" role="region"></div>
 
-  <!-- SECTION 2: DATA PREVIEW -->
   <div class="sec-label" id="preview-sec-label" role="heading" aria-level="2">02 — Data Preview</div>
   <div id="preview-section">
     <div class="preview-card">
@@ -118,7 +131,7 @@
         <span style="font-family:var(--mono);font-size:0.65rem;color:var(--muted)">Actual data from your file</span>
       </div>
       <div class="preview-table-wrap">
-        <table class="preview-table" role="table" aria-label="Data preview">
+        <table class="preview-table" role="table">
           <thead id="preview-thead"></thead>
           <tbody id="preview-tbody"></tbody>
         </table>
@@ -126,29 +139,28 @@
     </div>
   </div>
 
-  <!-- SECTION 3: COLUMN EXPLORER + STATS -->
   <div class="sec-label" id="col-sec-label" role="heading" aria-level="2">03 — Column Explorer &amp; Statistics</div>
   <div class="two-col">
-    <div class="col-explorer" role="region" aria-label="Column explorer">
+    <div class="col-explorer">
       <div class="col-explorer-header">
         <h2>Columns</h2>
-        <input class="col-search" id="col-search" type="search" placeholder="Search columns…" oninput="filterColumns(this.value)" aria-label="Search columns by name"/>
-        <div class="col-sort-btns" role="group" aria-label="Sort options">
-          <button class="sort-btn active" id="sort-name" onclick="sortColumnTable('name', this)" aria-label="Sort by name">Name ↕</button>
-          <button class="sort-btn" id="sort-null" onclick="sortColumnTable('null', this)" aria-label="Sort by null percentage">Null% ↕</button>
+        <input class="col-search" id="col-search" type="search" placeholder="Search columns…" oninput="debounceFilterColumns(this.value)"/>
+        <div class="col-sort-btns">
+          <button class="sort-btn active" id="sort-name" onclick="sortColumnTable('name',this)">Name ↕</button>
+          <button class="sort-btn" id="sort-null" onclick="sortColumnTable('null',this)">Null% ↕</button>
         </div>
       </div>
       <div class="col-table-wrap">
-        <table role="table" aria-label="Column details">
+        <table>
           <thead>
             <tr>
-              <th onclick="sortColumnTable('name',this)" scope="col">Name <span class="sort-arrow" aria-hidden="true">↕</span></th>
-              <th onclick="sortColumnTable('type',this)" scope="col">Type <span class="sort-arrow" aria-hidden="true">↕</span></th>
-              <th onclick="sortColumnTable('null',this)" scope="col">Null % <span class="sort-arrow" aria-hidden="true">↕</span></th>
-              <th onclick="sortColumnTable('unique',this)" scope="col">Unique <span class="sort-arrow" aria-hidden="true">↕</span></th>
-              <th scope="col">Mean</th>
-              <th scope="col">Median</th>
-              <th scope="col">Mode</th>
+              <th onclick="sortColumnTable('name',this)">Name <span class="sort-arrow">↕</span></th>
+              <th onclick="sortColumnTable('type',this)">Type <span class="sort-arrow">↕</span></th>
+              <th onclick="sortColumnTable('null',this)">Null % <span class="sort-arrow">↕</span></th>
+              <th onclick="sortColumnTable('unique',this)">Unique <span class="sort-arrow">↕</span></th>
+              <th>Mean</th>
+              <th>Median</th>
+              <th>Mode</th>
             </tr>
           </thead>
           <tbody id="col-tbody"></tbody>
@@ -156,56 +168,54 @@
       </div>
     </div>
 
-    <div class="stats-panel" role="region" aria-label="Column statistics panel">
+    <div class="stats-panel">
       <div class="stats-panel-header">
         <h2>Column Statistics</h2>
         <span style="font-size:0.73rem;color:var(--muted)">Click a column to explore</span>
       </div>
-      <div class="col-pills" id="col-pills" role="group" aria-label="Column selector pills"></div>
+      <div class="col-pills" id="col-pills"></div>
       <div class="stats-content" id="stats-content">
         <div class="no-col">👆 Select a column above to see its statistics and distribution chart</div>
       </div>
     </div>
   </div>
 
-  <!-- SECTION 4: DATA QUALITY + QUICK FIX -->
   <div id="quality-section">
     <div class="sec-label" id="quality-sec-label" role="heading" aria-level="2">04 — Data Health &amp; Completeness</div>
-    <div class="quality-card" role="region" aria-label="Data quality overview">
+    <div class="quality-card">
       <div class="quality-card-header">
         <h2>Fill Rate per Column</h2>
-        <div class="qf-actions" role="group" aria-label="Quick fix actions">
-          <button class="btn-qf red" id="btn-drop-dupes" style="display:none" onclick="quickFixDropDuplicates()" aria-label="Drop all duplicate rows">🗑 Drop Duplicates</button>
-          <button class="btn-qf" id="btn-fill-mean" style="display:none" onclick="quickFixFillNulls('mean')" aria-label="Fill null values with column mean">∑ Fill Nulls (Mean)</button>
-          <button class="btn-qf" id="btn-fill-median" style="display:none" onclick="quickFixFillNulls('median')" aria-label="Fill null values with column median">↕ Fill Nulls (Median)</button>
-          <button class="btn-qf purple" onclick="openMlPrep()" aria-label="Open Machine Learning Preprocessing options">⚙️ ML Prep & Clean</button>
-          <button class="btn-qf green" onclick="exportCleanedCSV()" aria-label="Export current data as cleaned CSV">⬇ Export CSV</button>
+        <div class="qf-actions">
+          <button class="btn-qf red" id="btn-drop-dupes" style="display:none" onclick="quickFixDropDuplicates()">🗑 Drop Duplicates</button>
+          <button class="btn-qf" id="btn-fill-mean" style="display:none" onclick="quickFixFillNulls('mean')">∑ Fill Nulls (Mean)</button>
+          <button class="btn-qf" id="btn-fill-median" style="display:none" onclick="quickFixFillNulls('median')">↕ Fill Nulls (Median)</button>
+          <button class="btn-qf purple" onclick="openMlPrep()">⚙️ ML Prep &amp; Clean</button>
+          <button class="btn-qf green" onclick="exportCleanedCSV()">⬇ Export CSV</button>
         </div>
       </div>
       <div class="quality-grid" id="quality-grid"></div>
     </div>
   </div>
 
-  <!-- SECTION 5: CORRELATIONS -->
   <div id="corr-section">
     <div class="sec-label" id="corr-sec-label" role="heading" aria-level="2">05 — Correlations</div>
-    <div class="corr-card" role="region" aria-label="Correlation analysis">
+    <div class="corr-card">
       <div class="corr-card-header">
         <h2>Pearson Correlation Pairs</h2>
-        <div class="corr-view-tabs" role="tablist" aria-label="Correlation view type">
-          <button class="corr-view-tab active" id="corr-tab-bars" role="tab" aria-selected="true" onclick="switchCorrView('bars',this)">Progress Bars</button>
-          <button class="corr-view-tab" id="corr-tab-heatmap" role="tab" aria-selected="false" onclick="switchCorrView('heatmap',this)">🔥 Heatmap</button>
+        <div class="corr-view-tabs">
+          <button class="corr-view-tab active" onclick="switchCorrView('bars',this)">Progress Bars</button>
+          <button class="corr-view-tab" onclick="switchCorrView('heatmap',this)">🔥 Heatmap</button>
         </div>
       </div>
       <div class="corr-body">
         <div id="corr-bars-view">
-          <div class="corr-grid" id="corr-grid" role="list" aria-label="Correlation pairs"></div>
+          <div class="corr-grid" id="corr-grid"></div>
         </div>
-        <div id="corr-heatmap-view" aria-label="Correlation heatmap">
+        <div id="corr-heatmap-view">
           <div class="heatmap-scroll" id="heatmap-wrap"></div>
-          <div class="heatmap-legend" aria-label="Heatmap colour scale">
+          <div class="heatmap-legend">
             <span>−1.0</span>
-            <div class="heatmap-legend-bar" aria-hidden="true"></div>
+            <div class="heatmap-legend-bar"></div>
             <span>+1.0</span>
             <span style="margin-left:auto;font-size:0.6rem">Red = negative · Blue = positive</span>
           </div>
@@ -214,34 +224,28 @@
     </div>
   </div>
 
-  <!-- SECTION 6: OUTLIERS + BOX PLOTS -->
   <div id="outlier-section">
     <div class="sec-label" id="outlier-sec-label" role="heading" aria-level="2">06 — Outlier Explorer</div>
-    <div class="outlier-card" role="region" aria-label="Outlier analysis">
+    <div class="outlier-card">
       <div class="outlier-header">
         <h2>Outlier Rows by Column (IQR Method)</h2>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <span style="font-family:var(--mono);font-size:0.65rem;color:var(--muted)" id="outlier-count-badge" aria-live="polite">—</span>
-          <button class="btn btn-sm" id="btn-boxplot" onclick="toggleBoxPlot()" aria-expanded="false" aria-controls="boxplot-panel">📦 Box Plots</button>
+          <span class="fmeta" id="outlier-count-badge">—</span>
+          <button class="btn btn-sm" id="btn-boxplot" onclick="toggleBoxPlot()" aria-expanded="false">📦 Box Plots</button>
         </div>
       </div>
       <div class="outlier-body">
-        <div class="outlier-col-tabs" id="outlier-col-tabs" role="tablist" aria-label="Select column for outlier view"></div>
-        <div id="outlier-content" role="region" aria-label="Outlier details">
-          <div class="outlier-empty">Select a column above to view its outlier rows</div>
-        </div>
+        <div class="outlier-col-tabs" id="outlier-col-tabs"></div>
+        <div id="outlier-content"><div class="outlier-empty">Select a column above to view its outlier rows</div></div>
       </div>
-      <!-- BOX PLOT PANEL -->
-      <div id="boxplot-panel" aria-label="Box plot visualization">
+      <div id="boxplot-panel">
         <div class="boxplot-panel-head">
           <span style="font-family:var(--serif);font-size:0.9rem;font-weight:600">Box Plot Visualization</span>
           <span style="font-family:var(--mono);font-size:0.63rem;color:var(--muted)">Min · Q1 · Median · Q3 · Max · Outliers</span>
         </div>
         <div style="padding:14px 18px">
-          <div class="boxplot-col-tabs" id="boxplot-col-tabs" role="tablist" aria-label="Select column for box plot"></div>
-          <div class="boxplot-canvas-area" role="img" aria-label="Box plot chart">
-            <canvas id="boxplot-canvas"></canvas>
-          </div>
+          <div class="boxplot-col-tabs" id="boxplot-col-tabs"></div>
+          <div class="boxplot-canvas-area"><canvas id="boxplot-canvas"></canvas></div>
           <div class="boxplot-stats" id="boxplot-stats"></div>
         </div>
       </div>
@@ -250,7 +254,7 @@
 
 </div><!-- /dashboard -->
 
-<!-- ── VISUALIZATION BUILDER MODAL ── -->
+<!-- VIS BUILDER MODAL -->
 <div id="vis-modal" role="dialog" aria-modal="true" aria-labelledby="vis-modal-title">
   <div class="vis-modal-inner">
     <div class="vis-modal-head">
@@ -258,76 +262,67 @@
         <h2 id="vis-modal-title">Visualization Builder</h2>
         <p>Pick chart type, select axes, and render</p>
       </div>
-      <button class="btn-ghost" onclick="closeVisBuilder()" title="Close (Esc)" aria-label="Close visualization builder">✕</button>
+      <button class="btn-ghost" onclick="closeVisBuilder()" title="Close (Esc)">✕</button>
     </div>
-
     <div class="vis-modal-body">
       <div class="vis-controls">
         <div class="ctrl-group">
-          <label id="chart-type-label">Chart Type</label>
-          <div class="chart-type-grid" id="ct-grid" role="group" aria-labelledby="chart-type-label">
-            <button class="ct-btn active" data-chart="bar"       onclick="selectChartType(this,'bar')"       aria-pressed="true"><span class="ct-icon" aria-hidden="true">📊</span>Bar</button>
-            <button class="ct-btn"        data-chart="line"      onclick="selectChartType(this,'line')"      aria-pressed="false"><span class="ct-icon" aria-hidden="true">📈</span>Line</button>
-            <button class="ct-btn"        data-chart="scatter"   onclick="selectChartType(this,'scatter')"   aria-pressed="false"><span class="ct-icon" aria-hidden="true">🔵</span>Scatter</button>
-            <button class="ct-btn"        data-chart="pie"       onclick="selectChartType(this,'pie')"       aria-pressed="false"><span class="ct-icon" aria-hidden="true">🥧</span>Pie</button>
-            <button class="ct-btn"        data-chart="doughnut"  onclick="selectChartType(this,'doughnut')"  aria-pressed="false"><span class="ct-icon" aria-hidden="true">🍩</span>Donut</button>
-            <button class="ct-btn"        data-chart="histogram" onclick="selectChartType(this,'histogram')" aria-pressed="false"><span class="ct-icon" aria-hidden="true">📉</span>Histogram</button>
-            <button class="ct-btn"        data-chart="boxplot"   onclick="selectChartType(this,'boxplot')"   aria-pressed="false"><span class="ct-icon" aria-hidden="true">📦</span>Box Plot</button>
-            <button class="ct-btn"        data-chart="radar"     onclick="selectChartType(this,'radar')"     aria-pressed="false"><span class="ct-icon" aria-hidden="true">🕸️</span>Radar</button>
+          <label>Chart Type</label>
+          <div class="chart-type-grid" id="ct-grid">
+            <button class="ct-btn active" data-chart="bar"       onclick="selectChartType(this,'bar')"><span class="ct-icon">📊</span>Bar</button>
+            <button class="ct-btn"        data-chart="line"      onclick="selectChartType(this,'line')"><span class="ct-icon">📈</span>Line</button>
+            <button class="ct-btn"        data-chart="scatter"   onclick="selectChartType(this,'scatter')"><span class="ct-icon">🔵</span>Scatter</button>
+            <button class="ct-btn"        data-chart="pie"       onclick="selectChartType(this,'pie')"><span class="ct-icon">🥧</span>Pie</button>
+            <button class="ct-btn"        data-chart="doughnut"  onclick="selectChartType(this,'doughnut')"><span class="ct-icon">🍩</span>Donut</button>
+            <button class="ct-btn"        data-chart="histogram" onclick="selectChartType(this,'histogram')"><span class="ct-icon">📉</span>Histogram</button>
+            <button class="ct-btn"        data-chart="boxplot"   onclick="selectChartType(this,'boxplot')"><span class="ct-icon">📦</span>Box Plot</button>
+            <button class="ct-btn"        data-chart="radar"     onclick="selectChartType(this,'radar')"><span class="ct-icon">🕸️</span>Radar</button>
           </div>
         </div>
-
-        <div class="chart-hint" id="chart-hint" role="note">💡 Choose a chart type and compatible columns from below.</div>
-        <div class="vis-helper" id="vis-compatibility" aria-live="polite">Select a chart type and compatible columns from the lists below.</div>
-
+        <div class="chart-hint" id="chart-hint">💡 Choose a chart type and compatible columns.</div>
+        <div class="vis-helper" id="vis-compatibility">Select a chart type and compatible columns below.</div>
         <div class="ctrl-group">
           <label for="vis-x">X Axis / Category</label>
           <select id="vis-x" onchange="autoRenderVis()"></select>
         </div>
-
         <div class="ctrl-group" id="vis-y-group">
           <label for="vis-y">Y Axis / Value</label>
           <select id="vis-y" onchange="autoRenderVis()"></select>
         </div>
-
         <div class="ctrl-group" id="vis-y2-group" style="display:none">
           <label for="vis-y2">Compare With (Y-Axis 2)</label>
           <select id="vis-y2" onchange="autoRenderVis()"></select>
         </div>
-
-        <div class="ctrl-group" style="margin-top: 5px;">
+        <div class="ctrl-group" style="margin-top:5px">
           <label class="checkbox-group">
-            <input type="checkbox" id="vis-show-labels" onchange="autoRenderVis()" />
+            <input type="checkbox" id="vis-show-labels" onchange="autoRenderVis()"/>
             <span>Show Data Labels</span>
           </label>
         </div>
-
-        <button class="btn btn-primary" style="width:100%" onclick="renderVisChart()" aria-label="Render the selected chart">▶ Render Chart</button>
-
-        <div style="border-top:1px solid var(--border);padding-top:14px;">
+        <button class="btn btn-primary" style="width:100%" onclick="renderVisChart()">▶ Render Chart</button>
+        <div style="border-top:1px solid var(--border);padding-top:14px">
           <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase;margin-bottom:8px">Suggested</div>
-          <div id="suggestions" style="display:flex;flex-direction:column;gap:6px;" role="list" aria-label="Suggested charts"></div>
+          <div id="suggestions" style="display:flex;flex-direction:column;gap:6px"></div>
         </div>
       </div>
-
       <div class="vis-canvas-area">
-        <div class="vis-chart-wrap" id="vis-chart-wrap" role="img" aria-label="Chart output area">
+        <div class="vis-chart-wrap" id="vis-chart-wrap">
           <div class="vis-chart-actions" id="vis-chart-actions" style="display:none">
-            <button class="btn btn-sm" onclick="downloadChart()" aria-label="Download chart as PNG">⬇ PNG</button>
+            <button class="btn btn-sm" onclick="downloadChart()">⬇ PNG</button>
           </div>
           <div class="vis-empty" id="vis-empty">
-            <span class="vis-empty-icon" aria-hidden="true">📊</span>
+            <span class="vis-empty-icon">📊</span>
             Select columns and click Render to create a chart
           </div>
-          <canvas id="vis-canvas" style="display:none; height:100%; width:100%;" aria-label="Chart canvas"></canvas>
+          <canvas id="vis-canvas" style="display:none;height:100%;width:100%"></canvas>
         </div>
-        <div class="vis-insights" id="vis-insights" role="list" aria-label="Chart insights"></div>
+        <div class="vis-insights" id="vis-insights"></div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ── REPORT MODAL ── -->
+<!-- REPORT MODAL -->
 <div id="report-modal" role="dialog" aria-modal="true" aria-labelledby="report-modal-title">
   <div class="report-modal-inner">
     <div class="report-head">
@@ -335,11 +330,9 @@
         <h2 id="report-modal-title">EDA Report</h2>
         <p style="font-size:0.78rem;color:var(--muted)" id="report-subtitle">—</p>
       </div>
-      <button class="btn-ghost" onclick="closeReport()" aria-label="Close report">✕</button>
+      <button class="btn-ghost" onclick="closeReport()">✕</button>
     </div>
-    <div id="report-content" role="region" aria-label="Report content">
-      <p style="color:var(--muted);text-align:center;padding:40px">Generating report...</p>
-    </div>
+    <div id="report-content"><p style="color:var(--muted);text-align:center;padding:40px">Generating report...</p></div>
     <div class="report-footer">
       <button class="btn btn-sm" onclick="closeReport()">Close</button>
       <button class="btn btn-primary btn-sm" onclick="downloadReport()">⬇ Download HTML</button>
@@ -347,47 +340,43 @@
   </div>
 </div>
 
-<!-- ── ML PREP & CLEAN MODAL ── -->
+<!-- ML PREP MODAL -->
 <div id="ml-modal" role="dialog" aria-modal="true" aria-labelledby="ml-modal-title">
   <div class="ml-modal-inner">
     <div class="report-head">
       <div>
-        <h2 id="ml-modal-title">Advanced Clean & ML Prep</h2>
+        <h2 id="ml-modal-title">Advanced Clean &amp; ML Prep</h2>
         <p style="font-size:0.78rem;color:var(--muted)">Configure transformations before exporting</p>
       </div>
-      <button class="btn-ghost" onclick="closeMlPrep()" aria-label="Close">✕</button>
+      <button class="btn-ghost" onclick="closeMlPrep()">✕</button>
     </div>
-    
-    <div style="flex:1; overflow-y:auto;">
+    <div style="flex:1;overflow-y:auto">
       <div class="ml-section">
         <h3>🗑️ Drop Columns</h3>
-        <p>Select columns you want to remove from the exported dataset.</p>
-        <div class="col-drop-grid" id="ml-drop-grid">
-          <!-- Populated by JS -->
-        </div>
+        <p>Select columns to remove from the exported dataset.</p>
+        <div class="col-drop-grid" id="ml-drop-grid"></div>
       </div>
-
       <div class="ml-section">
         <h3>🤖 Machine Learning Formatting</h3>
-        <p>Prepare your data so it can be fed directly into Scikit-Learn or TensorFlow.</p>
+        <p>Prepare data for Scikit-Learn or TensorFlow.</p>
         <label class="checkbox-group">
-          <input type="checkbox" id="ml-encode-cat" />
-          <span><strong>One-Hot Encode Categoricals:</strong> Convert text categories into binary columns (0 or 1).</span>
+          <input type="checkbox" id="ml-encode-cat"/>
+          <span><strong>One-Hot Encode Categoricals:</strong> Convert text categories into binary columns.</span>
         </label>
         <label class="checkbox-group">
-          <input type="checkbox" id="ml-scale-num" />
-          <span><strong>Standardize Numeric Features:</strong> Scale numeric data so mean=0 and variance=1 (Z-score scaling).</span>
+          <input type="checkbox" id="ml-scale-num"/>
+          <span><strong>Standardize Numeric Features:</strong> Z-score scaling (mean=0, variance=1).</span>
         </label>
       </div>
     </div>
-
     <div class="report-footer">
       <button class="btn btn-sm" onclick="closeMlPrep()">Cancel</button>
-      <button class="btn btn-primary btn-sm" onclick="applyAndExportMlPrep()">⬇ Apply & Export CSV</button>
+      <button class="btn btn-primary btn-sm" onclick="applyAndExportMlPrep()">⬇ Apply &amp; Export CSV</button>
     </div>
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='app.js') }}"></script>
+<!-- App script deferred — runs after DOM is ready -->
+<script defer src="app.js"></script>
 </body>
 </html>
