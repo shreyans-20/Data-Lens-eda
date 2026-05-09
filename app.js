@@ -13,7 +13,7 @@
 /* ── API base ──────────────────────────────────────────────── */
 const IS_GH_PAGES = window.location.hostname.includes("github.io");
 // Replace with your actual Vercel URL after first deploy
-const VERCEL_URL  = "https://your-project-name.vercel.app";
+const VERCEL_URL  = "https://data-lens-eda.vercel.app";
 const API_BASE    = IS_GH_PAGES ? VERCEL_URL : "";
 
 /* ── State ─────────────────────────────────────────────────── */
