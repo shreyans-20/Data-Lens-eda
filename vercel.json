@@ -4,12 +4,21 @@
     {
       "src": "app.py",
       "use": "@vercel/python"
+    },
+    {
+      "src": "*.css",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "*.js",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "app.py"
-    }
+    { "src": "/style.css", "dest": "/style.css" },
+    { "src": "/app.js", "dest": "/app.js" },
+    { "src": "/state.js", "dest": "/state.js" },
+    { "src": "/utils.js", "dest": "/utils.js" },
+    { "src": "/(.*)", "dest": "/app.py" }
   ]
 }
