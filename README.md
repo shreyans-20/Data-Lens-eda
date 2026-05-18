@@ -1,31 +1,55 @@
-# DataLens — EDA Studio
+<div align="center">
 
-> Upload a CSV or Excel file. Get a full analysis dashboard in seconds.
+<img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white"/>
+<img src="https://img.shields.io/badge/Flask-2.x-000000?style=flat&logo=flask"/>
+<img src="https://img.shields.io/badge/Pandas-NumPy-150458?style=flat&logo=pandas"/>
+<img src="https://img.shields.io/badge/Deployed-Vercel-000000?style=flat&logo=vercel"/>
+<img src="https://img.shields.io/badge/License-MIT-green?style=flat"/>
 
-🔗 **Live Demo:** [data-lens-eda.vercel.app](https://data-lens-eda.vercel.app)
+# Data Lens — EDA Studio
+
+**Upload any CSV or Excel file. Get a full analysis dashboard in seconds. No setup. No code.**
+
+🔗 **[data-lens-eda.vercel.app](https://data-lens-eda.vercel.app)** &nbsp;·&nbsp; 📱 **Mobile friendly** &nbsp;·&nbsp; 🌙 **Dark mode**
+
+</div>
 
 ---
 
 ## What It Does
 
-DataLens is a full-stack EDA (Exploratory Data Analysis) tool built with Flask and vanilla JavaScript. Upload any CSV or Excel file and it automatically profiles every column — statistics, distributions, correlations, outliers, and data quality — with zero setup required.
+DataLens is a full-stack **Exploratory Data Analysis (EDA)** tool. Upload a file and it automatically profiles every column — statistics, distributions, correlations, outliers, and data quality — all in one dashboard, with zero setup required.
+
+Built with **Flask + vanilla JavaScript**. No React. No bundler. No build step.
 
 ---
 
 ## Features
 
-- **Auto Column Profiling** — detects Numeric, Categorical, and Datetime columns automatically
-- **Descriptive Stats** — mean, median, mode, std dev, skewness, kurtosis per numeric column
-- **Outlier Detection** — IQR method (Q1 − 1.5×IQR, Q3 + 1.5×IQR) with interactive box plots
-- **Correlation Analysis** — Pearson r for all numeric pairs, progress bar view + full heatmap
-- **Data Preview** — first 10 rows of your actual file
-- **Data Quality** — fill rate per column with one-click fixes (drop duplicates, fill nulls with mean/median)
-- **Visualization Builder** — Bar, Line, Scatter, Pie, Donut, Histogram, Box Plot, Radar — with PNG export
-- **Star Schema Support** — auto-detects and joins fact + dimension tables from multi-sheet Excel files
-- **ML Prep Export** — drop columns, one-hot encode categoricals, standardize numerics, export clean CSV
-- **EDA Report** — auto-generated summary downloadable as a standalone HTML file
-- **Dark Mode** — persisted to localStorage
-- **Large File Support** — up to 1,00,000 rows (sampled above that for performance)
+| Category | What you get |
+|---|---|
+| **Column Profiling** | Auto-detects Numeric, Categorical, and Datetime columns |
+| **Descriptive Stats** | Mean, median, mode, std dev, skewness, kurtosis per numeric column |
+| **Outlier Detection** | IQR method with interactive box plots |
+| **Correlation Analysis** | Pearson r for all numeric pairs — progress bar view + full heatmap |
+| **Data Preview** | First 10 rows of your actual file |
+| **Data Quality** | Fill rate per column + one-click fixes (drop duplicates, fill nulls) |
+| **Visualization Builder** | Bar, Line, Scatter, Pie, Donut, Histogram, Box Plot, Radar — with PNG export |
+| **Star Schema Support** | Auto-detects and joins fact + dimension tables from multi-sheet Excel files |
+| **ML Prep Export** | Drop columns, one-hot encode, standardize numerics, export clean CSV |
+| **EDA Report** | Auto-generated summary downloadable as a standalone HTML file |
+| **AI Insights** | Automated narrative insights — quality issues, correlations, chart suggestions |
+| **Large File Support** | Up to 2,00,000 rows (sampled above that for performance) |
+
+---
+
+## Screenshots
+
+> Upload screen → instant dashboard
+
+| Landing | Dashboard |
+|---|---|
+| Upload CSV/Excel, choose sample data, or drag-and-drop | Full column profiles, correlations, charts, and AI insights |
 
 ---
 
@@ -33,14 +57,13 @@ DataLens is a full-stack EDA (Exploratory Data Analysis) tool built with Flask a
 
 | Layer | Technology |
 |---|---|
-| Backend | Python, Flask |
+| Backend | Python 3.10+, Flask |
 | Data Processing | Pandas, NumPy |
-| Frontend | Vanilla HTML, CSS, JavaScript |
-| Charts | Chart.js 4.4 + chartjs-plugin-datalabels |
-| File Support | CSV, XLSX, XLS |
-| Deployment | Vercel (backend) + GitHub Pages (frontend) |
-
-No React. No build step. No bundler.
+| Frontend | Vanilla HTML, CSS, JavaScript (ES Modules) |
+| Charts | Apache ECharts 5.4 |
+| Table Engine | AG Grid Community |
+| File Support | CSV, XLSX, XLS, JSON |
+| Deployment | Vercel (backend + frontend) + GitHub Pages (frontend mirror) |
 
 ---
 
@@ -48,14 +71,16 @@ No React. No build step. No bundler.
 
 ```
 datalens-eda/
-├── app.py            # Flask routes: /upload, /export, /health, /api/chart_data, /api/multi_line
-├── eda_engine.py     # All EDA logic: column profiling, stats, correlations, outliers
-├── index.html        # Full frontend: layout, Chart.js, all JavaScript
-├── style.css         # All styles, dark mode, responsive layout
+├── app.py            # Flask routes: /upload, /export, /api/chart_data, /api/pivot, etc.
+├── eda_engine.py     # EDA logic: column profiling, stats, correlations, outlier detection
+├── index.html        # Full frontend layout
+├── style.css         # All styles — dark mode, responsive, mobile-first
 ├── app.js            # Frontend logic: rendering, charts, export, vis builder
+├── state.js          # Shared frontend state
+├── utils.js          # Toast, debounce, color constants
 ├── requirements.txt  # Python dependencies
-├── Procfile          # Gunicorn config for deployment
-└── vercel.json       # Vercel routing config
+├── vercel.json       # Vercel routing config (static + Python)
+└── README.md
 ```
 
 ---
@@ -65,7 +90,7 @@ datalens-eda/
 ```bash
 git clone https://github.com/shreyans-20/datalens-eda.git
 cd datalens-eda
-pip install flask flask-cors pandas numpy openpyxl gunicorn
+pip install -r requirements.txt
 python app.py
 ```
 
@@ -75,13 +100,26 @@ Open `http://localhost:5000`
 
 ## How It Works
 
-1. File uploads to `/upload` via multipart form data
-2. `eda_engine.py` classifies each column, computes stats, generates histogram bins, box plot values, top correlations, and the first 10 preview rows — all in a single pass
-3. Everything comes back as one JSON object — no second requests needed for most views
-4. The frontend renders the full dashboard from that JSON instantly
-5. Quick fixes (drop duplicates, fill nulls) update an in-memory copy client-side
-6. `/export` applies those fixes server-side on the original DataFrame and streams a cleaned CSV back
-7. For multi-sheet Excel files, `auto_join_sheets` identifies the largest sheet as the fact table and left-joins dimension tables on common columns automatically
+```
+File upload (multipart)
+        │
+        ▼
+  eda_engine.py
+  ─ classifies each column (numeric / categorical / datetime)
+  ─ computes stats, histograms, box plot values, correlations
+  ─ detects outliers via IQR
+  ─ scores data health
+        │
+        ▼
+  Single JSON response → frontend renders full dashboard instantly
+        │
+  User applies fixes (drop duplicates, fill nulls, encode, scale)
+        │
+        ▼
+  /export → Flask applies fixes server-side → streams cleaned CSV
+```
+
+For multi-sheet Excel files, `_auto_join()` identifies the largest sheet as the fact table and left-joins dimension tables on shared columns automatically.
 
 ---
 
@@ -89,10 +127,14 @@ Open `http://localhost:5000`
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/upload` | POST | Upload file, returns full EDA JSON |
+| `/upload` | POST | Upload file, returns full EDA JSON + AI insights |
 | `/export` | POST | Apply fixes server-side, return cleaned CSV |
 | `/api/chart_data` | POST | Aggregated chart data for Visualization Builder |
-| `/api/multi_line` | POST | Multi-series line chart data (grouped averages) |
+| `/api/multi_line` | POST | Multi-series line chart data |
+| `/api/pivot` | POST | Pivot table with custom row/col/value/aggregation |
+| `/api/apply_fixes` | POST | Apply data cleaning fixes, returns updated EDA |
+| `/api/insights` | POST | Re-generate AI insights for current dataset |
+| `/api/table_data` | POST | Raw table data (first 1000 rows) |
 | `/health` | GET | Status check |
 
 ---
@@ -101,19 +143,26 @@ Open `http://localhost:5000`
 
 The app runs on two platforms simultaneously:
 
-- **Vercel** → full app (file upload, export, all API routes)
-- **GitHub Pages** → frontend only (sample data works, file upload requires backend)
+- **Vercel** — full app (upload, export, all API routes, frontend)
+- **GitHub Pages** — frontend mirror (sample data works; file upload requires Vercel backend)
 
-The frontend auto-detects which environment it's running in and points API calls to the correct base URL.
+The frontend auto-detects the environment and points API calls to the right base URL.
+
+**Environment variables for production:**
+
+| Variable | Purpose |
+|---|---|
+| `SECRET_KEY` | Flask session secret (required in prod) |
+| `ALLOWED_ORIGINS` | Comma-separated extra CORS origins |
 
 ---
 
 ## Known Limitations
 
-- **GitHub Pages** is frontend-only — CSV export falls back to the 10-row preview (full export needs the Flask backend on Vercel)
-- **Session store** is in-memory — resets on server restart, so sessions on free-tier hosting may expire after inactivity
+- **GitHub Pages** is frontend-only — full CSV export needs the Vercel backend
+- **Session store** is in-memory — expires on server restart (free-tier Vercel serverless resets between invocations)
 - **Scatter plots** in the correlation section are pre-computed for the top correlated pair only
-- **Vercel free tier** has a 10-second function timeout — very large files (>50MB) may time out on upload
+- **Vercel free tier** has a 10-second function timeout — very large files may time out
 
 ---
 
