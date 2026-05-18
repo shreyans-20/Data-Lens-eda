@@ -17,14 +17,13 @@ from threading import Lock
 import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, render_template, request, send_file
-import os # Ensure os is imported for REDIS_URL and USE_REDIS
+import os
 
 try:
     from flask_cors import CORS
 except ImportError:
     CORS = None
 
-import redis
 from eda_engine import run_eda
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -36,8 +35,6 @@ base_dir = os.path.abspath(os.path.dirname(__file__))
 app = Flask(__name__, template_folder=base_dir, static_folder=base_dir, static_url_path="")
 
 secret = os.environ.get("SECRET_KEY")
-if not secret and os.environ.get("VERCEL_ENV") == "production":
-    raise RuntimeError("SECRET_KEY environment variable must be set in production.")
 app.config["SECRET_KEY"] = secret or "dev-key-placeholder"
 
 VERCEL_PAYLOAD_LIMIT_BYTES = 4_500_000
@@ -76,29 +73,8 @@ else:
         response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
         return response
 
-# --- Session Storage Configuration ---
-# Use Redis for persistent session storage in production, or if explicitly enabled.
-# Fallback to local temporary files if Redis is not configured or fails to connect.
-REDIS_URL = os.environ.get("REDIS_URL")
-USE_REDIS = bool(REDIS_URL) and (
-    os.environ.get("USE_REDIS", "false").lower() == "true"
-    or os.environ.get("VERCEL_ENV") == "production"
-)
-SESSION_EXPIRY_SECONDS = 3600 # 1 hour
-
-redis_client = None
-if USE_REDIS:
-    try:
-        redis_client = redis.from_url(REDIS_URL, socket_connect_timeout=5)
-        redis_client.ping()
-        log.info(f"Connected to Redis at {REDIS_URL} for session storage.")
-    except redis.exceptions.ConnectionError as e:
-        log.error(f"Could not connect to Redis at {REDIS_URL}: {e}. Falling back to local tempfile session storage.")
-        redis_client = None
-elif os.environ.get("VERCEL_ENV") == "production":
-    log.warning("REDIS_URL is not set. Falling back to local session storage; uploaded files may expire between serverless invocations.")
-
-# Fallback to local tempfile storage if Redis is not used or fails
+# --- Session Storage: local tempfile only (no Redis on Vercel serverless) ---
+SESSION_EXPIRY_SECONDS = 3600
 ALLOWED_EXT = {".csv", ".xlsx", ".xls", ".json"}
 _STORE_DIR = os.path.join(tempfile.gettempdir(), "datalens_store")
 if not os.path.exists(_STORE_DIR):
@@ -107,17 +83,13 @@ _store: OrderedDict[str, str] = OrderedDict()
 _store_lock = Lock()
 _STORE_MAX  = 5
 
-# --- Rate Limiting Configuration ---
-# Re-introducing Flask-Limiter with Redis storage if available, else in-memory.
-# This is crucial for production to prevent abuse.
+# --- Rate Limiting: in-memory only (no Redis) ---
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     default_limits=["200 per day", "50 per hour"],
-    storage_uri=REDIS_URL if redis_client else "memory://"
+    storage_uri="memory://"
 )
-if redis_client:
-    log.info(f"Flask-Limiter configured with Redis storage at {REDIS_URL}.")
 
 _progress_store: dict[str, str] = {}
 
@@ -131,31 +103,17 @@ def _allowed(filename: str) -> bool:
 
 
 def _store_df(df: pd.DataFrame, existing_fid: str = None) -> str:
-    """Stores a DataFrame, either in Redis or as a tempfile, returning its ID."""
+    """Stores a DataFrame as a tempfile, returning its ID."""
     fid = existing_fid if existing_fid else str(uuid.uuid4())
 
-    if redis_client:
-        try:
-            buffer = io.BytesIO()
-            pickle.dump(df, buffer, protocol=pickle.HIGHEST_PROTOCOL)
-            buffer.seek(0)
-            redis_client.set(f"datalens_df:{fid}", buffer.getvalue(), ex=SESSION_EXPIRY_SECONDS)
-            log.debug(f"Stored DataFrame {fid} in Redis.")
-            return fid
-        except Exception as e:
-            log.error(f"Failed to store DataFrame {fid} in Redis: {e}. Falling back to local tempfile storage.")
-            # Continue to tempfile logic below if Redis fails
-
-    # Fallback to local tempfile storage
     with _store_lock:
-        # Perform garbage collection for old tempfiles
+        # Clean up expired tempfiles
         now = time.time()
-        for f_name in list(os.listdir(_STORE_DIR)): # Iterate over a copy to allow modification
+        for f_name in list(os.listdir(_STORE_DIR)):
             fpath_full = os.path.join(_STORE_DIR, f_name)
             if os.path.isfile(fpath_full) and (now - os.path.getmtime(fpath_full)) > SESSION_EXPIRY_SECONDS:
                 try:
                     os.remove(fpath_full)
-                    # Also remove from _store if it was tracked
                     for k, v in list(_store.items()):
                         if v == fpath_full:
                             _store.pop(k)
@@ -179,26 +137,12 @@ def _store_df(df: pd.DataFrame, existing_fid: str = None) -> str:
 
 
 def _get_df(fid: str) -> pd.DataFrame | None:
-    """Retrieves a DataFrame, first from Redis, then from tempfile fallback."""
-    if redis_client:
-        try:
-            df_bytes = redis_client.get(f"datalens_df:{fid}")
-            if df_bytes:
-                buffer = io.BytesIO(df_bytes)
-                df = pickle.load(buffer)
-                log.debug(f"Retrieved DataFrame {fid} from Redis.")
-                return df
-            log.debug(f"DataFrame {fid} not found in Redis.")
-        except Exception as e:
-            log.error(f"Failed to retrieve DataFrame {fid} from Redis: {e}. Falling back to local tempfile storage.")
-            # Continue to tempfile logic below if Redis fails
-
-    # Fallback to local tempfile storage
+    """Retrieves a DataFrame from tempfile storage."""
     fpath = None
-    with _store_lock: # Acquire lock for _store access
+    with _store_lock:
         fpath = _store.get(fid)
 
-    if fpath and os.path.exists(fpath): # Check existence outside lock for performance
+    if fpath and os.path.exists(fpath):
         try:
             return pd.read_pickle(fpath)
         except Exception as e:
@@ -208,35 +152,13 @@ def _get_df(fid: str) -> pd.DataFrame | None:
 
 
 def _set_progress(pid: str, message: str):
-    if redis_client:
-        try:
-            redis_client.set(f"datalens_progress:{pid}", message, ex=600) # Progress messages expire after 10 minutes
-        except Exception as e:
-            log.warning(f"Failed to set progress {pid} in Redis: {e}. Falling back to in-memory.")
-            _progress_store[pid] = message
-    else:
-        _progress_store[pid] = message
+    _progress_store[pid] = message
 
 def _get_progress(pid: str) -> str:
-    if redis_client:
-        try:
-            progress = redis_client.get(f"datalens_progress:{pid}")
-            return progress.decode('utf-8') if progress else "Initializing..."
-        except Exception as e:
-            log.warning(f"Failed to get progress {pid} from Redis: {e}. Falling back to in-memory.")
-            return _progress_store.get(pid, "Initializing...")
-    else:
-        return _progress_store.get(pid, "Initializing...")
+    return _progress_store.get(pid, "Initializing...")
 
 def _clear_progress(pid: str):
-    if redis_client:
-        try:
-            redis_client.delete(f"datalens_progress:{pid}")
-        except Exception as e:
-            log.warning(f"Failed to clear progress {pid} from Redis: {e}. Falling back to in-memory.")
-            _progress_store.pop(pid, None)
-    else:
-        _progress_store.pop(pid, None)
+    _progress_store.pop(pid, None)
 
 
 def _convert(obj):
@@ -489,7 +411,7 @@ def upload():
             if pid: _set_progress(pid, m)
 
         result   = run_eda(df, progress_callback=update_p)
-        fid      = _store_df(df) # Initial store
+        fid      = _store_df(df)
 
         origin_map = meta.get("column_origins", {})
         for col in result.get("columns", []):
@@ -504,7 +426,7 @@ def upload():
         gc.collect()
 
         return jsonify({
-            "success": True, "file_id": fid, # Return the generated file_id
+            "success": True, "file_id": fid,
             "table_metadata": meta, "insights": insights,
             "shape": {"rows": int(len(df)), "cols": int(len(df.columns))},
             **result,
@@ -545,7 +467,6 @@ def apply_fixes_api():
             return jsonify({"error": "Session expired — please re-upload"}), 400
 
         df = _apply_fixes(df.copy(), fixes)
-        # Update the stored DataFrame with the modified one
         _store_df(df, existing_fid=fid)
 
         result = run_eda(df)
@@ -602,6 +523,7 @@ def pivot_table():
         log.error("pivot error", exc_info=True)
         return jsonify({"error": "Failed to generate pivot table."}), 500
 
+
 def _apply_fixes(df: pd.DataFrame, fixes: dict) -> pd.DataFrame:
     drop_rows = fixes.get("drop_rows", [])
     if drop_rows:
@@ -626,13 +548,11 @@ def _apply_fixes(df: pd.DataFrame, fixes: dict) -> pd.DataFrame:
             fill_vals = {}
             for c in df.columns:
                 if df[c].isnull().any():
-                    # Attempt numeric conversion for robust calculation (handles numeric-looking strings)
                     series_num = pd.to_numeric(df[c], errors='coerce')
                     if series_num.notna().any():
                         val = series_num.mean() if fill_method == "mean" else series_num.median()
                         if pd.notna(val) and np.isfinite(val):
                             fill_vals[c] = val
-                            # Coerce original column to numeric to ensure fill works
                             df[c] = series_num
 
             if fill_vals:
@@ -672,7 +592,7 @@ def export_data():
         body = body or {}
         fid   = body.get("file_id")
         fixes = body.get("fixes", {})
-            
+
         df    = _get_df(fid)
         if df is None:
             return jsonify({"success": False, "error": "Session expired — please re-upload"}), 400
@@ -699,12 +619,12 @@ def get_table_data():
                 try: body = json.loads(request.data)
                 except Exception: pass
         body = body or {}
-        
+
         fid = body.get("file_id") or request.args.get("file_id")
         df = _get_df(fid)
         if df is None:
             return jsonify({"error": "Session expired."}), 400
-        
+
         data = _convert(df.head(1000).where(pd.notnull(df), None).to_dict(orient="records"))
         return jsonify({"columns": list(df.columns), "rows": data})
     except Exception:
@@ -730,7 +650,6 @@ def chart_data():
         if not x_col or x_col not in df.columns:
             return jsonify({"error": "Invalid X column."}), 400
 
-        # Apply cross-filters from global filter state
         for fcol, fvals in filters.items():
             if fcol in df.columns and fvals and isinstance(fvals, list):
                 df = df[df[fcol].astype(str).isin([str(v) for v in fvals])]
@@ -747,7 +666,7 @@ def chart_data():
 
         if chart_type in ("pie","doughnut","pareto") and agg_func == "none":
             agg_func = "sum" if pd.api.types.is_numeric_dtype(df[y_col]) else "count"
-            
+
         if chart_type == "scatter":
             sub = df[[x_col, y_col]].dropna().head(500)
             return jsonify(_convert({"scatter_data": sub.values.tolist(), "x_col": x_col, "y_col": y_col}))
