@@ -1,6 +1,10 @@
 flask
-flask-cors
 pandas
 numpy
 openpyxl
+xlrd
+pytest
+redis
+flask-limiter
 gunicorn
+flask-cors
