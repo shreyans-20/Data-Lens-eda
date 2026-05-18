@@ -276,11 +276,12 @@ body.dashboard-active #theme-toggle:hover { border-color: var(--accent); backgro
 ══════════════════════════════════════════════ */
 #upload-screen {
   display: none; /* hidden until JS shows, override below */
-  height: calc(100vh - 60px); 
+  min-height: calc(100vh - 60px);
   background: var(--land-bg);
   position: relative;
-  overflow: hidden;
-  padding: 10px 60px; /* Reduced padding to prevent scrolling */
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 60px 60px;
   align-items: center;
   justify-content: center;
   gap: 80px;
@@ -838,7 +839,7 @@ tbody td:first-child { font-family: var(--mono); font-size: 0.75rem; color: var(
    RESPONSIVE
 ══════════════════════════════════════════════ */
 @media (max-width: 1100px) {
-  #upload-screen { flex-direction: column; padding: 60px 40px; gap: 48px; }
+  #upload-screen { flex-direction: column; padding: 60px 40px 80px; gap: 48px; align-items: center; }
   .upload-right { width: 100%; max-width: 480px; }
   .upload-left { max-width: 100%; }
   .two-col { grid-template-columns: 1fr; }
@@ -847,9 +848,25 @@ tbody td:first-child { font-family: var(--mono); font-size: 0.75rem; color: var(
 @media (max-width: 640px) {
   html, body { font-size: 15px; }
   button, select, .btn-qf { min-height: 40px; }
-  #upload-screen { padding: 40px 20px; gap: 36px; }
-  .hero-title { font-size: 2.6rem; }
-  .upload-right { width: 100%; }
+  #upload-screen {
+    flex-direction: column;
+    padding: 32px 20px 60px;
+    gap: 28px;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .upload-left {
+    max-width: 100%;
+    text-align: center;
+  }
+  .hero-eyebrow { justify-content: center; }
+  .hero-title { font-size: clamp(2.2rem, 8vw, 2.8rem); margin-bottom: 16px; }
+  .hero-sub { font-size: 1.05rem; max-width: 100%; margin-bottom: 12px; }
+  .hero-stats { padding: 12px 0; margin-bottom: 16px; }
+  .hstat-num { font-size: 1.6rem; }
+  .social-links { justify-content: center; }
+  .upload-right { width: 100%; max-width: 100%; }
+  .upload-card-inner { padding: 24px 20px; }
   .feature-pills { grid-template-columns: 1fr 1fr; }
   #overview-grid { grid-template-columns: repeat(2, 1fr); }
   .stat-grid { grid-template-columns: 1fr 1fr; }
