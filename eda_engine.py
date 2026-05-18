@@ -1,5 +1,5 @@
 """
-eda_engine.py  — DataLens EDA Studio
+eda_engine.py  — Data Lens by Shreyans
 Optimised for speed: bulk vectorised ops, lazy kurtosis, capped samples.
 """
 from __future__ import annotations
@@ -7,7 +7,6 @@ from typing import Any
 import math
 import pandas as pd
 import numpy as np
-
 
 # ──────────────────────────────────────────────
 # HELPERS
@@ -18,10 +17,13 @@ def _classify(series: pd.Series) -> str:
         return "numeric"
     if pd.api.types.is_datetime64_any_dtype(series):
         return "datetime"
-    if series.dtype == object:
-        sample = series.dropna().iloc[:50]
+    
+    # Better datetime detection for object columns
+    if series.dtype == object or pd.api.types.is_categorical_dtype(series):
+        sample = series.dropna().head(100)
         if len(sample) and pd.to_datetime(sample, errors="coerce", cache=True).notna().mean() >= 0.8:
             return "datetime"
+            
     return "categorical"
 
 
@@ -42,19 +44,28 @@ def _outlier_mask(clean: pd.Series, q1: float, q3: float) -> pd.Series:
 # MAIN
 # ──────────────────────────────────────────────
 
-def run_eda(df: pd.DataFrame) -> dict[str, Any]:
+def run_eda(df: pd.DataFrame, progress_callback=None) -> dict[str, Any]:
+    def update(msg):
+        if progress_callback: progress_callback(msg)
+
     if df is None or df.empty:
         return _empty_result()
 
-    # Cap rows — Vercel 512 MB RAM limit
-    if len(df) > 100_000:
+    original_rows = len(df)
+
+    # ── Optimization: Sample immediately for large files ──
+    if original_rows > 100_000:
+        update("Large dataset detected: Sampling for performance...")
         df = df.sample(n=100_000, random_state=42)
+    else:
+        update("Optimizing dataset for analysis...")
 
     total_rows, total_cols = df.shape
 
     # ── Bulk pre-computation (single pass) ──────────────────
+    update("Calculating basic statistics...")
     null_counts   = df.isnull().sum()
-    unique_counts = df.nunique()
+    # Postpone nunique to per-column loop to avoid blocking
     dup_rows      = int(df.duplicated().sum())
     preview       = df.head(10).where(pd.notnull(df), None).to_dict(orient="records")
 
@@ -76,11 +87,12 @@ def run_eda(df: pd.DataFrame) -> dict[str, Any]:
     profiles = []
     datetime_cols = []
 
+    update(f"Profiling {total_cols} columns...")
     for col in df.columns:
         ctype      = col_types[col]
         null_count = int(null_counts[col])
         null_pct   = round(null_count / total_rows * 100, 2)
-        unique_cnt = int(unique_counts[col])
+        unique_cnt = int(df[col].nunique()) # Calculate per column
 
         profile: dict[str, Any] = {
             "name":         col,
@@ -112,19 +124,23 @@ def run_eda(df: pd.DataFrame) -> dict[str, Any]:
                 "counts":    counts.tolist(),
                 "bin_edges": [round(x, 4) for x in edges.tolist()],
             }
+            iqr = q3 - q1
+            lower_whisker = max(clean.min(), q1 - 1.5 * iqr)
+            upper_whisker = min(clean.max(), q3 + 1.5 * iqr)
             profile["boxplot"] = {
-                "min":      _safe_float(s["min"]),
+                "min":      _safe_float(lower_whisker),
                 "q1":       round(q1, 4),
                 "median":   _safe_float(s["50%"]),
                 "q3":       round(q3, 4),
-                "max":      _safe_float(s["max"]),
+                "max":      _safe_float(upper_whisker),
                 "outliers": [_safe_float(x) for x in clean[omask].head(50)],
             }
             mode_v = clean.mode()
-            profile["mode"] = _safe_float(mode_v.iloc[0]) if not mode_v.empty else None
+            profile["mode"] = _safe_float(mode_v.iloc[0]) if (not mode_v.empty and pd.notna(mode_v.iloc[0])) else None
 
         elif ctype == "categorical":
-            vc = df[col].value_counts().head(10)
+            clean_cat = df[col].dropna()
+            vc = clean_cat.value_counts().head(10)
             profile["bar_chart"] = {
                 "labels": [str(v) for v in vc.index],
                 "counts": vc.values.tolist(),
@@ -147,14 +163,17 @@ def run_eda(df: pd.DataFrame) -> dict[str, Any]:
     # ── Correlations (sample large datasets) ────────────────
     num_names = [p["name"] for p in profiles if p["type"] == "numeric"]
     correlations = []
+    correlation_matrix = {}
     scatter = {"col_a": None, "col_b": None, "data": []}
+    update("Analyzing column correlations...")
 
     if len(num_names) >= 2:
         corr_df = (
-            df[num_names].sample(n=50_000, random_state=42)
-            if total_rows > 50_000 else df[num_names]
+            df[num_names].sample(n=200_000, random_state=42)
+            if total_rows > 200_000 else df[num_names]
         )
         corr_mat = corr_df.corr()
+        correlation_matrix = corr_mat.to_dict()
         pairs = []
         for i in range(len(num_names)):
             for j in range(i + 1, len(num_names)):
@@ -175,16 +194,18 @@ def run_eda(df: pd.DataFrame) -> dict[str, Any]:
             }
 
     # ── Health score ─────────────────────────────────────────
+    update("Finalizing data health report...")
     null_impact = (df.isnull().sum().sum() / (total_rows * total_cols)) * 100
     dup_impact  = (dup_rows / total_rows) * 100
     health      = max(0.0, min(100.0, 100 - null_impact * 1.5 - dup_impact * 2))
 
     return {
-        "shape":           {"rows": total_rows, "cols": total_cols},
+        "shape":           {"rows": original_rows, "cols": total_cols},
         "duplicate_rows":  dup_rows,
         "health_score":    round(health, 1),
         "columns":         profiles,
         "datetime_columns": datetime_cols,
+        "correlation_matrix": correlation_matrix,
         "correlations":    correlations,
         "scatter":         scatter,
         "preview_rows":    preview,
